@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://upload.wikimedia.org/wikipedia/commons/5/5c/Porsche_Taycan_%28IAA_2019%29_IMG_0230.jpg" alt="Porsche Taycan" width="600"/>
+  <img src="2025-porsche-taycan.webp" alt="Porsche Taycan" width="600"/>
 </p>
 
 <h1 align="center">Porsche Taycan Market Analysis</h1>
@@ -66,14 +66,14 @@ Plus three bonuses:
 
 ## Final output
 
-Two recommendation tables:
+A unified **Top 15 Candidates** table where each car has auto-generated reasoning (e.g. "Flagship Turbo S at 18% below market median · Barely driven · Zero damage + dealer origin") and buyer-profile tags:
 
-| Table | Criteria | Who it's for |
+| Tag | Criteria | Who it's for |
 |---|---|---|
-| **Safest Investment** | Clean + 2023+ + <=15k km/yr | Buyers who want zero risk |
-| **Best Value** | No high-km risk + <=1 changed part | Buyers who want the best deal |
+| **SAFE** | Clean + 2023+ + <=15k km/yr | Buyers who want zero risk |
+| **VALUE** | No high-km risk + <=1 changed part | Buyers who want the best deal |
 
-Plus a ready-to-paste **AI prompt** with all data for the top 10 cars, so you can get a second opinion from Claude, ChatGPT, or any LLM.
+Plus a ready-to-paste **AI prompt** with the same 15 cars including their reasoning and tags, so you can get a second opinion from Claude, ChatGPT, or any LLM.
 
 ---
 
@@ -101,7 +101,7 @@ taycan-analysis/
 ### 1. Setup
 
 ```bash
-git clone <repo-url> && cd taycan-analysis
+git clone https://github.com/orcunbaslak/porsche-taycan-analysis.git && cd porsche-taycan-analysis
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
@@ -133,6 +133,7 @@ Run all cells top-to-bottom. The notebook has 12 sections:
 | # | Section | What it does |
 |---|---|---|
 | 1 | Data Loading | Loads latest scrape run from SQLite |
+| — | Date Range Filter | Interactive slider to exclude stale listings |
 | 2 | Disqualification | Hard-filters heavy damage, 3+ changed parts |
 | 3 | Derived Metrics | Computes km/year, damage severity, clean/bayi flags |
 | 4 | Price Analysis | Histograms, scatter plots, price-per-km |
@@ -141,7 +142,7 @@ Run all cells top-to-bottom. The notebook has 12 sections:
 | 7 | Feature Comparison | Equipment frequency and price correlation |
 | 8 | Depreciation | OLS trendlines, depreciation curves, sweet spots |
 | 9 | Facelift (2024+) | Dedicated analysis for facelift models |
-| 10 | Final Picks | "Safest Investment" and "Best Value" tables |
+| 10 | Top Candidates | Ranked list with auto-generated reasoning and tags |
 | 11 | AI Recommendation | Copy-paste prompt for LLM second opinion |
 | 12 | Interactive Browser | Sortable table + dropdown detail viewer |
 
@@ -156,7 +157,7 @@ Run all cells top-to-bottom. The notebook has 12 sections:
 
 ## Notes
 
-- The database file (`taycan.db`) is gitignored — you need to run the scraper to populate it
+- The database file (`taycan.db`) is included in the repo with sample data
 - Designed for macOS — use `gtimeout` instead of `timeout` in shell commands
 - The scraper respects sahibinden.com's rate limits with built-in delays
 - Cross Turismo (station wagon) variants are excluded from analysis
