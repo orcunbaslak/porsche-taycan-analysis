@@ -19,7 +19,16 @@ def init_db(db_path=None):
     conn = get_connection(db_path)
     with open(SCHEMA_PATH) as f:
         conn.executescript(f.read())
+    _run_migrations(conn)
     conn.close()
+
+
+def _run_migrations(conn):
+    """Apply schema migrations for columns added after initial release."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(listings)").fetchall()}
+    if "is_active" not in columns:
+        conn.execute("ALTER TABLE listings ADD COLUMN is_active INTEGER DEFAULT 1")
+        conn.commit()
 
 
 def create_scrape_run(conn):
@@ -51,7 +60,8 @@ def upsert_listing_summary(conn, run_id, data):
             year=excluded.year, km=excluded.km, color=excluded.color,
             price=excluded.price, currency=excluded.currency,
             listing_date=excluded.listing_date, location_city=excluded.location_city,
-            location_district=excluded.location_district
+            location_district=excluded.location_district,
+            is_active=1
         """,
         (
             run_id,
@@ -261,3 +271,21 @@ def update_listing_model(conn, listing_id, model):
         (model, listing_id),
     )
     conn.commit()
+
+
+def mark_inactive_listings(conn, run_id):
+    """
+    Mark listings from any run as inactive if their sahibinden_id
+    is not present in the current run's search results.
+    Returns the number of deactivated listings.
+    """
+    cur = conn.execute(
+        """UPDATE listings SET is_active = 0
+           WHERE is_active = 1
+           AND sahibinden_id NOT IN (
+               SELECT sahibinden_id FROM listings WHERE scrape_run_id = ?
+           )""",
+        (run_id,),
+    )
+    conn.commit()
+    return cur.rowcount

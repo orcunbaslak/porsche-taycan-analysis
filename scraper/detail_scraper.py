@@ -1,10 +1,9 @@
 """Scrape individual listing detail pages from sahibinden.com."""
 
-import random
 import time
 
-from scraper.config import DEFAULT_DELAY
 from scraper.parsers import parse_detail_page, _extract_model
+from scraper.human_behavior import human_delay, maybe_long_break, simulate_detail_page
 from db.database import (
     get_unscraped_listings,
     get_previously_scraped_ids,
@@ -16,11 +15,14 @@ from db.database import (
 )
 
 
-def scrape_detail_pages(page, conn, run_id, delay=DEFAULT_DELAY, progress_cb=None):
+def scrape_detail_pages(page, conn, run_id, delay=None, progress_cb=None):
     """
     Scrape detail pages for all unscraped listings in the given run.
     Copies data from previous runs when available to avoid re-scraping.
     Returns number of successfully processed details (copied + scraped).
+
+    delay: If set, uses delay..delay*2 as the sleep range instead of the
+           default human behavior range (5-10s).
     """
     # Get previously scraped IDs for cross-run dedup
     prev_scraped = get_previously_scraped_ids(conn, run_id)
@@ -67,6 +69,9 @@ def scrape_detail_pages(page, conn, run_id, delay=DEFAULT_DELAY, progress_cb=Non
             page.wait_for_selector("ul.classifiedInfoList", timeout=30000)
             time.sleep(1)
 
+            # Human-like browsing before extracting content
+            simulate_detail_page(page)
+
             html = page.content()
             data = parse_detail_page(html)
 
@@ -101,13 +106,11 @@ def scrape_detail_pages(page, conn, run_id, delay=DEFAULT_DELAY, progress_cb=Non
             progress_cb(i + 1, len(to_scrape), scraped)
 
         if i < len(to_scrape) - 1:
-            _sleep(delay)
+            if delay is not None:
+                human_delay(delay, delay * 2)
+            else:
+                human_delay()
+            maybe_long_break(i + 1)
 
     print(f"[DETAIL] Done: {copied} copied + {scraped} scraped = {copied + scraped} total")
     return copied + scraped
-
-
-def _sleep(delay):
-    """Sleep with ±30% randomness."""
-    actual = delay * (0.7 + random.random() * 0.6)
-    time.sleep(actual)

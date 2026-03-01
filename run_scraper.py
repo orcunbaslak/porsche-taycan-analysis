@@ -11,6 +11,7 @@ from db.database import (
     finish_scrape_run,
     get_latest_run_id,
     get_run_stats,
+    mark_inactive_listings,
 )
 from scraper.browser import BrowserManager
 from scraper.list_scraper import scrape_search_pages
@@ -31,7 +32,8 @@ def main():
     parser = argparse.ArgumentParser(description="Scrape Porsche Taycan listings from sahibinden.com")
     parser.add_argument("--list-only", action="store_true", help="Only scrape search result pages")
     parser.add_argument("--resume", action="store_true", help="Resume detail scraping for the latest run")
-    parser.add_argument("--delay", type=float, default=4.0, help="Base delay between requests (seconds)")
+    parser.add_argument("--delay", type=float, default=None,
+                        help="Override base delay between requests (seconds). Uses delay..delay*2 range. Default: 5-10s human delay.")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
     args = parser.parse_args()
 
@@ -62,6 +64,11 @@ def main():
                 print("\n=== Phase 1: Scraping search results ===")
                 total_listings = scrape_search_pages(page, conn, run_id, delay=args.delay)
                 print(f"\nFound {total_listings} listings total.")
+
+                # Mark listings no longer on sahibinden as inactive
+                deactivated = mark_inactive_listings(conn, run_id)
+                if deactivated:
+                    print(f"Marked {deactivated} listings as inactive (no longer on sahibinden).")
 
                 if args.list_only:
                     status = "completed"

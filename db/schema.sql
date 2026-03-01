@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS listings (
     damage_changed_count INTEGER,
     -- Metadata
     detail_scraped INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(scrape_run_id, sahibinden_id)
 );
