@@ -62,13 +62,16 @@ def main():
             if not args.resume:
                 # Step 1: Scrape search result pages
                 print("\n=== Phase 1: Scraping search results ===")
-                total_listings = scrape_search_pages(page, conn, run_id, delay=args.delay)
+                total_listings, full_scan = scrape_search_pages(page, conn, run_id, delay=args.delay)
                 print(f"\nFound {total_listings} listings total.")
 
-                # Mark listings no longer on sahibinden as inactive
-                deactivated = mark_inactive_listings(conn, run_id)
-                if deactivated:
-                    print(f"Marked {deactivated} listings as inactive (no longer on sahibinden).")
+                # Only mark inactive when we did a full scan (visited all pages)
+                if full_scan:
+                    deactivated = mark_inactive_listings(conn, run_id)
+                    if deactivated:
+                        print(f"Marked {deactivated} listings as inactive (no longer on sahibinden).")
+                else:
+                    print("Partial scan (stopped early) — skipping inactive marking.")
 
                 if args.list_only:
                     status = "completed"

@@ -168,6 +168,12 @@ def get_run_stats(conn, run_id):
     return {"total": total, "detail_scraped": scraped}
 
 
+def get_all_known_ids(conn):
+    """Get all sahibinden_ids that exist in any run."""
+    rows = conn.execute("SELECT DISTINCT sahibinden_id FROM listings").fetchall()
+    return {row["sahibinden_id"] for row in rows}
+
+
 def get_previously_scraped_ids(conn, current_run_id):
     """Get sahibinden_ids that were detail-scraped in any previous run."""
     rows = conn.execute(

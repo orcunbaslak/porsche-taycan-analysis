@@ -8,7 +8,7 @@ CHROME_PROFILE = "Profile 1"  # SahibindenProfile
 
 # Sahibinden URLs
 BASE_URL = "https://www.sahibinden.com"
-SEARCH_URL = f"{BASE_URL}/porsche-taycan"
+SEARCH_URL = f"{BASE_URL}/porsche-taycan-elektrik?pagingSize=50&sorting=date_desc"
 
 # Delay between page loads (seconds) — randomized ±30%
 DEFAULT_DELAY = 4.0

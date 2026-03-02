@@ -1,6 +1,6 @@
 import time
 import urllib.request
-from playwright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright
 from scraper.config import VIEWPORT, NAVIGATION_TIMEOUT
 
 CDP_PORT = 9222
@@ -40,7 +40,20 @@ class BrowserManager:
 
         default_context = self._browser.contexts[0]
         default_context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => false});
+            // Hide webdriver flag
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+
+            // Patch Permissions.query so notification permission looks normal
+            const originalQuery = window.Permissions.prototype.query;
+            window.Permissions.prototype.query = (parameters) => (
+                parameters.name === 'notifications'
+                    ? Promise.resolve({state: Notification.permission})
+                    : originalQuery(parameters)
+            );
+
+            // Remove Playwright-injected properties from window
+            delete window.__playwright;
+            delete window.__pw_manual;
         """)
 
         print("Connected.")

@@ -21,4 +21,6 @@ echo ""
 "$CHROME" \
     --remote-debugging-port=9222 \
     --user-data-dir="$DATA_DIR" \
-    --no-first-run
+    --no-first-run \
+    --disable-blink-features=AutomationControlled \
+    --disable-infobars
