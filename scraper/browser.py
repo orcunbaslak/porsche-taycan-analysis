@@ -1,7 +1,20 @@
 import time
 import urllib.request
-from patchright.sync_api import sync_playwright
+from rebrowser_playwright.sync_api import sync_playwright
 from scraper.config import VIEWPORT, NAVIGATION_TIMEOUT
+
+STEALTH_JS = """
+// Hide webdriver flag
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+
+// Patch Permissions.query so notification permission looks normal
+const originalQuery = window.Permissions.prototype.query;
+window.Permissions.prototype.query = (parameters) => (
+    parameters.name === 'notifications'
+        ? Promise.resolve({state: Notification.permission})
+        : originalQuery(parameters)
+);
+"""
 
 CDP_PORT = 9222
 
@@ -38,24 +51,6 @@ class BrowserManager:
             f"http://127.0.0.1:{CDP_PORT}"
         )
 
-        default_context = self._browser.contexts[0]
-        default_context.add_init_script("""
-            // Hide webdriver flag
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-
-            // Patch Permissions.query so notification permission looks normal
-            const originalQuery = window.Permissions.prototype.query;
-            window.Permissions.prototype.query = (parameters) => (
-                parameters.name === 'notifications'
-                    ? Promise.resolve({state: Notification.permission})
-                    : originalQuery(parameters)
-            );
-
-            // Remove Playwright-injected properties from window
-            delete window.__playwright;
-            delete window.__pw_manual;
-        """)
-
         print("Connected.")
         return self._browser
 
@@ -67,6 +62,13 @@ class BrowserManager:
         page.set_viewport_size(VIEWPORT)
         page.set_default_navigation_timeout(NAVIGATION_TIMEOUT)
         page.set_default_timeout(NAVIGATION_TIMEOUT)
+
+        # Inject stealth via CDP — add_init_script doesn't work
+        # reliably on contexts obtained via connect_over_cdp.
+        cdp = context.new_cdp_session(page)
+        cdp.send("Page.addScriptToEvaluateOnNewDocument", {"source": STEALTH_JS})
+        self._cdp = cdp
+
         return page
 
     def close(self):

@@ -1,4 +1,4 @@
-playwright
+rebrowser-playwright
 beautifulsoup4
 lxml
 pandas

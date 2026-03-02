@@ -16,6 +16,27 @@ from db.database import (
 from scraper.browser import BrowserManager
 from scraper.list_scraper import scrape_search_pages
 from scraper.detail_scraper import scrape_detail_pages
+from scraper.navigate import safe_goto
+
+
+BOT_CHECK_URLS = [
+    "https://www.browserscan.net/bot-detection",
+    "https://deviceandbrowserinfo.com/are_you_a_bot",
+]
+
+
+def _run_bot_check():
+    """Open bot detection test pages and wait for user to inspect."""
+    print("=== Bot Detection Check ===")
+    with BrowserManager() as browser:
+        for url in BOT_CHECK_URLS:
+            print(f"Opening: {url}")
+            tab = browser.new_page()
+            safe_goto(tab, url)
+            tab.bring_to_front()
+            print("  Check the Chrome window. Press Enter to continue...")
+            input()
+    print("Done.")
 
 
 def progress_bar(current, total, scraped):
@@ -34,8 +55,15 @@ def main():
     parser.add_argument("--resume", action="store_true", help="Resume detail scraping for the latest run")
     parser.add_argument("--delay", type=float, default=None,
                         help="Override base delay between requests (seconds). Uses delay..delay*2 range. Default: 5-10s human delay.")
+    parser.add_argument("--full", action="store_true",
+                        help="Full scan: visit all list pages (no early stop) and mark inactive listings")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
+    parser.add_argument("--bot-check", action="store_true", help="Open bot detection test pages and wait")
     args = parser.parse_args()
+
+    if args.bot_check:
+        _run_bot_check()
+        return
 
     # Initialize database
     init_db()
@@ -62,7 +90,7 @@ def main():
             if not args.resume:
                 # Step 1: Scrape search result pages
                 print("\n=== Phase 1: Scraping search results ===")
-                total_listings, full_scan = scrape_search_pages(page, conn, run_id, delay=args.delay)
+                total_listings, full_scan = scrape_search_pages(page, conn, run_id, delay=args.delay, full=args.full)
                 print(f"\nFound {total_listings} listings total.")
 
                 # Only mark inactive when we did a full scan (visited all pages)

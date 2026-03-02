@@ -5,19 +5,21 @@ import time
 from scraper.config import SEARCH_URL
 from scraper.parsers import parse_listing_rows, has_next_page
 from scraper.human_behavior import human_delay, maybe_long_break, simulate_list_page
+from scraper.navigate import safe_goto
 from db.database import upsert_listing_summary, get_all_known_ids
 
 
-def scrape_search_pages(page, conn, run_id, delay=None):
+def scrape_search_pages(page, conn, run_id, delay=None, full=False):
     """
     Navigate through all search result pages and collect listing summaries.
     Results are sorted by date descending. Stops early when all listings
-    on a page are already in the database.
+    on a page are already in the database (unless full=True).
     Returns (total_found, full_scan) where full_scan is True if all pages
     were visited (no early stop).
 
     delay: If set, uses delay..delay*2 as the sleep range instead of the
            default human behavior range (5-10s).
+    full:  If True, scan all pages without early stop (needed for inactive detection).
     """
     known_ids = get_all_known_ids(conn)
     offset = 0
@@ -29,7 +31,7 @@ def scrape_search_pages(page, conn, run_id, delay=None):
         url = SEARCH_URL if offset == 0 else f"{SEARCH_URL}&pagingOffset={offset}"
         print(f"[LIST] Loading: {url}")
 
-        page.goto(url, wait_until="domcontentloaded")
+        safe_goto(page, url)
         # Wait for results to render
         page.wait_for_selector("tr.searchResultsItem", timeout=30000)
         time.sleep(1)  # small extra wait for DOM
@@ -55,7 +57,7 @@ def scrape_search_pages(page, conn, run_id, delay=None):
         page_count += 1
         print(f"[LIST] Found {len(listings)} listings ({new_count} new, total: {total_found})")
 
-        if new_count == 0:
+        if new_count == 0 and not full:
             print("[LIST] All listings on this page already in DB, stopping early.")
             full_scan = False
             break

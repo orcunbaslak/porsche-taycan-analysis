@@ -4,6 +4,7 @@ import time
 
 from scraper.parsers import parse_detail_page, _extract_model
 from scraper.human_behavior import human_delay, maybe_long_break, simulate_detail_page
+from scraper.navigate import safe_goto
 from db.database import (
     get_unscraped_listings,
     get_previously_scraped_ids,
@@ -64,7 +65,7 @@ def scrape_detail_pages(page, conn, run_id, delay=None, progress_cb=None):
         print(f"[DETAIL] ({i+1}/{len(to_scrape)}) Scraping {sah_id}: {url}")
 
         try:
-            page.goto(url, wait_until="domcontentloaded")
+            safe_goto(page, url)
             # Wait for main content
             page.wait_for_selector("ul.classifiedInfoList", timeout=30000)
             time.sleep(1)
