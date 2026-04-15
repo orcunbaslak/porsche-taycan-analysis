@@ -168,6 +168,16 @@ def get_run_stats(conn, run_id):
     return {"total": total, "detail_scraped": scraped}
 
 
+def get_last_successful_run_date(conn):
+    """Get the started_at date of the most recent completed scrape run."""
+    row = conn.execute(
+        "SELECT started_at FROM scrape_runs WHERE status='completed' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        return None
+    return datetime.fromisoformat(row["started_at"]).date()
+
+
 def get_all_known_ids(conn):
     """Get all sahibinden_ids that exist in any run."""
     rows = conn.execute("SELECT DISTINCT sahibinden_id FROM listings").fetchall()

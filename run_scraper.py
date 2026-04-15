@@ -126,8 +126,24 @@ def main():
         status = "failed"
     finally:
         finish_scrape_run(conn, run_id, total_listings, status)
-        conn.close()
         print(f"\nScrape run #{run_id} finished with status: {status}")
+
+        if status in ("failed", "interrupted"):
+            try:
+                answer = input(
+                    "\nMark this run as successful for date tracking in the next scan? (y/N): "
+                ).strip().lower()
+                if answer == "y":
+                    conn.execute(
+                        "UPDATE scrape_runs SET status='completed' WHERE id=?",
+                        (run_id,),
+                    )
+                    conn.commit()
+                    print(f"Run #{run_id} marked as completed for date tracking.")
+            except (EOFError, KeyboardInterrupt):
+                pass
+
+        conn.close()
 
 
 if __name__ == "__main__":

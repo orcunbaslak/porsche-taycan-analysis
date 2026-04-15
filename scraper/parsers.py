@@ -1,7 +1,15 @@
 """HTML parsing logic for sahibinden.com listings."""
 
 import re
+from datetime import date, timedelta
 from bs4 import BeautifulSoup
+
+
+TURKISH_MONTHS = {
+    "ocak": 1, "şubat": 2, "mart": 3, "nisan": 4,
+    "mayıs": 5, "haziran": 6, "temmuz": 7, "ağustos": 8,
+    "eylül": 9, "ekim": 10, "kasım": 11, "aralık": 12,
+}
 
 
 def parse_price(text):
@@ -38,15 +46,83 @@ def parse_year(text):
     return int(match.group()) if match else None
 
 
+def parse_listing_date(text):
+    """Parse Turkish listing date text → date object.
+
+    Handles: 'Bugün ...', 'Dün ...', 'DD Ay YYYY', 'DD Ay' (current year).
+    Returns None if unparseable.
+    """
+    if not text:
+        return None
+    text = text.strip().lower()
+    today = date.today()
+
+    if text.startswith("bugün"):
+        return today
+    if text.startswith("dün"):
+        return today - timedelta(days=1)
+
+    parts = text.split()
+    if len(parts) >= 2:
+        try:
+            day = int(parts[0])
+            month = TURKISH_MONTHS.get(parts[1])
+            if month:
+                year = int(parts[2]) if len(parts) >= 3 else today.year
+                return date(year, month, day)
+        except (ValueError, IndexError):
+            pass
+
+    return None
+
+
+def _is_honeypot_row(row):
+    """Detect honeypot/hidden listing rows injected for bot detection."""
+    # Check inline style for hidden indicators
+    style = (row.get("style") or "").lower().replace(" ", "")
+    hidden_indicators = [
+        "display:none", "visibility:hidden", "opacity:0",
+        "height:0px", "width:0px", "max-height:0",
+        "position:absolute;left:-", "position:fixed;left:-",
+    ]
+    if any(h in style for h in hidden_indicators):
+        return True
+
+    # Check for hide/hidden classes
+    classes = row.get("class", [])
+    cls_str = " ".join(classes).lower()
+    if any(kw in cls_str for kw in ("hide", "hidden", "invisible", "d-none")):
+        return True
+
+    # Must have a title link with href
+    title_el = row.select_one("a.classifiedTitle")
+    if not title_el or not title_el.get("href"):
+        return True
+
+    # Cross-validate: data-id must appear in the URL
+    data_id = row.get("data-id", "")
+    href = title_el.get("href", "")
+    if data_id and href and data_id not in href:
+        return True
+
+    return False
+
+
 def parse_listing_rows(html):
     """Parse search results page HTML → list of listing dicts."""
     soup = BeautifulSoup(html, "lxml")
     listings = []
+    skipped_honeypots = 0
 
     rows = soup.select("tr.searchResultsItem[data-id]")
     for row in rows:
         # Skip native ads
         if "nativeAd" in row.get("class", []):
+            continue
+
+        # Skip honeypot/hidden rows
+        if _is_honeypot_row(row):
+            skipped_honeypots += 1
             continue
 
         data_id = row.get("data-id")
@@ -103,6 +179,9 @@ def parse_listing_rows(html):
                 "location_district": location_district,
             }
         )
+
+    if skipped_honeypots:
+        print(f"[HONEYPOT] Skipped {skipped_honeypots} suspected trap row(s)")
 
     return listings
 
