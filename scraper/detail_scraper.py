@@ -1,5 +1,6 @@
 """Scrape individual listing detail pages from sahibinden.com."""
 
+import random
 import time
 
 from scraper.parsers import parse_detail_page, _extract_model
@@ -16,7 +17,24 @@ from db.database import (
 )
 
 
-def scrape_detail_pages(page, conn, run_id, delay=None, progress_cb=None):
+def split_unscraped(unscraped, prev_scraped, max_details=None, shuffle=True, rng=random):
+    """Split unscraped listings into (to_copy, to_scrape).
+
+    to_copy:   already detail-scraped in a previous run -> copy, no network.
+    to_scrape: truly new -> fetch detail page. Optionally shuffled (de-patterns the
+               request order) and capped at max_details (remainder is retried next run
+               because it keeps detail_scraped=0).
+    """
+    to_copy = [l for l in unscraped if l["sahibinden_id"] in prev_scraped]
+    to_scrape = [l for l in unscraped if l["sahibinden_id"] not in prev_scraped]
+    if shuffle:
+        rng.shuffle(to_scrape)
+    if max_details is not None:
+        to_scrape = to_scrape[:max_details]
+    return to_copy, to_scrape
+
+
+def scrape_detail_pages(page, conn, run_id, delay=None, progress_cb=None, max_details=None):
     """
     Scrape detail pages for all unscraped listings in the given run.
     Copies data from previous runs when available to avoid re-scraping.
@@ -35,9 +53,8 @@ def scrape_detail_pages(page, conn, run_id, delay=None, progress_cb=None):
         print("[DETAIL] All listings already scraped.")
         return 0
 
-    # Split into "can copy" and "need to scrape"
-    to_copy = [l for l in unscraped if l["sahibinden_id"] in prev_scraped]
-    to_scrape = [l for l in unscraped if l["sahibinden_id"] not in prev_scraped]
+    # Split into "can copy" and "need to scrape" (shuffled + optionally capped)
+    to_copy, to_scrape = split_unscraped(unscraped, prev_scraped, max_details=max_details)
 
     copied = 0
     scraped = 0
