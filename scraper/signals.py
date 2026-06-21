@@ -160,3 +160,45 @@ def compute_signals(conn):
         )
 
     conn.commit()
+
+
+def top_bargains(conn, n):
+    """Return the top-n active cars by motivation_score, joined to their latest listing row."""
+    return conn.execute(
+        """SELECT s.sahibinden_id, s.motivation_score, s.price_drop_pct, s.bump_count,
+                  s.days_on_market, s.num_price_cuts, s.current_price,
+                  l.model, l.year, l.km, l.url
+           FROM listing_signals s
+           JOIN listings l
+             ON l.sahibinden_id = s.sahibinden_id
+            AND l.scrape_run_id = (SELECT MAX(id) FROM scrape_runs)
+           WHERE s.is_active = 1 AND s.insufficient_history = 0
+           ORDER BY s.motivation_score DESC
+           LIMIT ?""",
+        (n,),
+    ).fetchall()
+
+
+def price_history(conn, sahibinden_id):
+    """Return a car's per-run observations, oldest -> newest.
+
+    Each item: {"run_id", "run_date" (YYYY-MM-DD), "listing_date" (raw bump text), "price"}.
+    Reads the raw listings history; the full price+bump timeline lives there.
+    """
+    rows = conn.execute(
+        """SELECT l.scrape_run_id AS run_id, r.started_at, l.listing_date, l.price
+           FROM listings l
+           JOIN scrape_runs r ON r.id = l.scrape_run_id
+           WHERE l.sahibinden_id = ?
+           ORDER BY l.scrape_run_id""",
+        (sahibinden_id,),
+    ).fetchall()
+    return [
+        {
+            "run_id": row["run_id"],
+            "run_date": (row["started_at"] or "")[:10],
+            "listing_date": row["listing_date"],
+            "price": row["price"],
+        }
+        for row in rows
+    ]
