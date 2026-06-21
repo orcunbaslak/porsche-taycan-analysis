@@ -37,3 +37,17 @@ LONG_BREAK_MAX = 30.0
 # Playwright settings
 VIEWPORT = {"width": 1440, "height": 900}
 NAVIGATION_TIMEOUT = 60000  # ms
+
+# --- Bargain / motivation score ---
+# Weights must sum to 1.0; each input is normalized against its cap (0..1).
+SCORE_WEIGHT_PRICE_DROP = 0.40   # price_drop_pct
+SCORE_WEIGHT_PRICE_CUTS = 0.20   # num_price_cuts
+SCORE_WEIGHT_DAYS = 0.20         # days_on_market
+SCORE_WEIGHT_BUMPS = 0.20        # bump_count
+
+SCORE_CAP_PRICE_DROP_PCT = 25.0  # % drop that maxes out this component
+SCORE_CAP_PRICE_CUTS = 5         # number of cuts that maxes out
+SCORE_CAP_DAYS_ON_MARKET = 180   # days that maxes out
+SCORE_CAP_BUMP_COUNT = 10        # bumps that maxes out
+
+REPORT_TOP_N = 5                 # rows in the console summary after a scan
