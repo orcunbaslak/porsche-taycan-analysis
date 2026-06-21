@@ -1,5 +1,9 @@
 """Compute a per-car bargain / motivation signal from cross-run listing history."""
 
+from collections import defaultdict
+from datetime import datetime
+
+from scraper.parsers import parse_listing_date
 from scraper.config import (
     SCORE_WEIGHT_PRICE_DROP,
     SCORE_WEIGHT_PRICE_CUTS,
@@ -101,3 +105,58 @@ def compute_car_metrics(observations):
         "insufficient_history": insufficient_history,
         "motivation_score": score,
     }
+
+
+def _iso_or_none(d):
+    return d.isoformat() if d is not None else None
+
+
+def compute_signals(conn):
+    """Recompute the listing_signals table from the full cross-run listings history."""
+    latest_row = conn.execute("SELECT MAX(id) AS m FROM scrape_runs").fetchone()
+    latest_run_id = latest_row["m"] if latest_row else None
+
+    rows = conn.execute(
+        """SELECT l.sahibinden_id, l.scrape_run_id, l.listing_date, l.price, r.started_at
+           FROM listings l
+           JOIN scrape_runs r ON r.id = l.scrape_run_id
+           ORDER BY l.sahibinden_id, l.scrape_run_id"""
+    ).fetchall()
+
+    groups = defaultdict(list)
+    for row in rows:
+        groups[row["sahibinden_id"]].append(row)
+
+    now = datetime.now().isoformat()
+    conn.execute("DELETE FROM listing_signals")
+
+    for sah_id, obs_rows in groups.items():
+        observations = [
+            {
+                "run_date": datetime.fromisoformat(o["started_at"]).date(),
+                "listing_date": parse_listing_date(o["listing_date"]),
+                "price": o["price"],
+            }
+            for o in obs_rows
+        ]
+        is_active = 1 if any(o["scrape_run_id"] == latest_run_id for o in obs_rows) else 0
+        m = compute_car_metrics(observations)
+        conn.execute(
+            """INSERT INTO listing_signals (
+                sahibinden_id, is_active, runs_seen, first_seen_date, last_seen_date,
+                days_on_market, bump_count, bump_cadence_days, first_price, current_price,
+                max_price, min_price, total_price_drop, price_drop_pct, num_price_cuts,
+                last_price_cut_date, motivation_score, insufficient_history, computed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                sah_id, is_active, m["runs_seen"],
+                _iso_or_none(m["first_seen_date"]), _iso_or_none(m["last_seen_date"]),
+                m["days_on_market"], m["bump_count"], m["bump_cadence_days"],
+                m["first_price"], m["current_price"], m["max_price"], m["min_price"],
+                m["total_price_drop"], m["price_drop_pct"], m["num_price_cuts"],
+                _iso_or_none(m["last_price_cut_date"]), m["motivation_score"],
+                m["insufficient_history"], now,
+            ),
+        )
+
+    conn.commit()
