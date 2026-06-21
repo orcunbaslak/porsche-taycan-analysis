@@ -65,3 +65,25 @@ CREATE TABLE IF NOT EXISTS features (
     feature_name TEXT,
     is_present INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS listing_signals (
+    sahibinden_id        TEXT PRIMARY KEY,
+    is_active            INTEGER,
+    runs_seen            INTEGER,
+    first_seen_date      TEXT,
+    last_seen_date       TEXT,
+    days_on_market       INTEGER,
+    bump_count           INTEGER,
+    bump_cadence_days    REAL,
+    first_price          INTEGER,
+    current_price        INTEGER,
+    max_price            INTEGER,
+    min_price            INTEGER,
+    total_price_drop     INTEGER,
+    price_drop_pct       REAL,
+    num_price_cuts       INTEGER,
+    last_price_cut_date  TEXT,
+    motivation_score     REAL,
+    insufficient_history INTEGER DEFAULT 0,
+    computed_at          TEXT
+);
