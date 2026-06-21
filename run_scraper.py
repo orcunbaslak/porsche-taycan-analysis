@@ -16,9 +16,9 @@ from db.database import (
 from scraper.browser import BrowserManager
 from scraper.list_scraper import scrape_search_pages
 from scraper.detail_scraper import scrape_detail_pages
-from scraper.navigate import safe_goto
+from scraper.navigate import safe_goto, BlockedError
 from scraper.signals import compute_signals, top_bargains
-from scraper.config import REPORT_TOP_N
+from scraper.config import REPORT_TOP_N, DEFAULT_MAX_DETAILS
 
 
 BOT_CHECK_URLS = [
@@ -71,8 +71,9 @@ def main():
     parser.add_argument("--resume", action="store_true", help="Resume detail scraping for the latest run")
     parser.add_argument("--delay", type=float, default=None,
                         help="Override base delay between requests (seconds). Uses delay..delay*2 range. Default: 5-10s human delay.")
-    parser.add_argument("--max-details", type=int, default=None,
-                        help="Cap detail-page fetches this run; remainder retried next run.")
+    parser.add_argument("--max-details", type=int, default=DEFAULT_MAX_DETAILS,
+                        help=f"Cap detail-page fetches this run; remainder retried next run "
+                             f"(default {DEFAULT_MAX_DETAILS}; pass a large number to disable).")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
     parser.add_argument("--bot-check", action="store_true", help="Open bot detection test pages and wait")
     args = parser.parse_args()
@@ -135,6 +136,16 @@ def main():
     except KeyboardInterrupt:
         print("\n\nInterrupted by user.")
         status = "interrupted"
+    except BlockedError as e:
+        print(f"\n[BLOCKED] sahibinden rate-limited us: {e}")
+        print("Stopped early to avoid making it worse. Let the profile/IP cool down "
+              "before the next run, and keep --max-details small.")
+        status = "blocked"
+        try:
+            # The list sweep that already ran still feeds the bargain signal.
+            _report_signal(conn)
+        except Exception:
+            pass
     except Exception as e:
         print(f"\nError: {e}")
         import traceback

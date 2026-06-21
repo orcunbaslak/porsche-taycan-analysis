@@ -39,6 +39,7 @@ def test_scan_visits_all_pages_without_early_stop(monkeypatch):
     monkeypatch.setattr(ls.time, "sleep", lambda *a, **k: None)
 
     class FakePage:
+        url = "https://www.sahibinden.com/porsche-taycan-elektrik"
         def wait_for_selector(self, *a, **k):
             return None
         def content(self):

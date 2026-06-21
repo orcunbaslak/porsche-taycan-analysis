@@ -51,3 +51,9 @@ SCORE_CAP_DAYS_ON_MARKET = 180   # days that maxes out
 SCORE_CAP_BUMP_COUNT = 10        # bumps that maxes out
 
 REPORT_TOP_N = 5                 # rows in the console summary after a scan
+
+# Detail-fetch cap per run. The list sweep (~6 requests) already feeds the full
+# bargain signal; capping detail fetches keeps each session's request count under
+# sahibinden's rate-limit threshold. Backlog drains over subsequent runs.
+# Set via --max-details; pass a large number to effectively disable.
+DEFAULT_MAX_DETAILS = 8

@@ -5,7 +5,7 @@ import time
 
 from scraper.parsers import parse_detail_page, _extract_model
 from scraper.human_behavior import human_delay, maybe_long_break, simulate_detail_page
-from scraper.navigate import safe_goto
+from scraper.navigate import safe_goto, is_block_page, BlockedError
 from db.database import (
     get_unscraped_listings,
     get_previously_scraped_ids,
@@ -91,6 +91,8 @@ def scrape_detail_pages(page, conn, run_id, delay=None, progress_cb=None, max_de
             simulate_detail_page(page)
 
             html = page.content()
+            if is_block_page(page.url, html):
+                raise BlockedError(f"Block page detected while scraping {sah_id}.")
             data = parse_detail_page(html)
 
             # Extract nested data before updating
@@ -117,6 +119,8 @@ def scrape_detail_pages(page, conn, run_id, delay=None, progress_cb=None, max_de
 
             scraped += 1
 
+        except BlockedError:
+            raise  # don't swallow — abort the run so we stop hammering the block page
         except Exception as e:
             print(f"[DETAIL] Error scraping {sah_id}: {e}")
 

@@ -5,7 +5,7 @@ import time
 from scraper.config import SEARCH_URL
 from scraper.parsers import parse_listing_rows, has_next_page
 from scraper.human_behavior import human_delay, maybe_long_break, simulate_list_page
-from scraper.navigate import safe_goto
+from scraper.navigate import safe_goto, is_block_page, BlockedError
 from db.database import upsert_listing_summary, get_all_known_ids
 
 
@@ -38,6 +38,8 @@ def scrape_search_pages(page, conn, run_id, delay=None):
         simulate_list_page(page)
 
         html = page.content()
+        if is_block_page(page.url, html):
+            raise BlockedError(f"Block page detected during list scan at offset {offset}.")
         listings = parse_listing_rows(html)
 
         if not listings:
