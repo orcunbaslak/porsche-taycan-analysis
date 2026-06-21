@@ -647,11 +647,75 @@ def top_bargains(conn, n):
 Run: `.venv/bin/python -m pytest tests/test_signals_top.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Add a failing test for `price_history`**
+
+Append to `tests/test_signals_top.py`:
+```python
+def test_price_history_is_ordered_oldest_to_newest():
+    with tempfile.TemporaryDirectory() as d:
+        db_path = os.path.join(d, "t.db")
+        init_db(db_path)
+        conn = get_connection(db_path)
+        conn.execute("INSERT INTO scrape_runs (id, started_at, status) VALUES (2, '2026-06-01T10:00:00', 'completed')")
+        conn.execute("INSERT INTO scrape_runs (id, started_at, status) VALUES (1, '2026-01-01T10:00:00', 'completed')")
+        conn.execute("INSERT INTO listings (scrape_run_id, sahibinden_id, price, listing_date) VALUES (2,'HOT',12000000,'20 Mayıs')")
+        conn.execute("INSERT INTO listings (scrape_run_id, sahibinden_id, price, listing_date) VALUES (1,'HOT',16000000,'01 Ocak')")
+        conn.commit()
+
+        from scraper.signals import price_history
+        hist = price_history(conn, "HOT")
+        conn.close()
+
+    assert [h["price"] for h in hist] == [16000000, 12000000]   # ordered by run id
+    assert hist[0]["run_date"] == "2026-01-01"
+    assert hist[0]["listing_date"] == "01 Ocak"
+    assert [h["run_id"] for h in hist] == [1, 2]
+```
+
+- [ ] **Step 6: Run test to verify it fails**
+
+Run: `.venv/bin/python -m pytest tests/test_signals_top.py::test_price_history_is_ordered_oldest_to_newest -v`
+Expected: FAIL — `ImportError: cannot import name 'price_history'`.
+
+- [ ] **Step 7: Implement `price_history`**
+
+Add to `scraper/signals.py`:
+```python
+def price_history(conn, sahibinden_id):
+    """Return a car's per-run observations, oldest -> newest.
+
+    Each item: {"run_id", "run_date" (YYYY-MM-DD), "listing_date" (raw bump text), "price"}.
+    Reads the raw listings history; the full price+bump timeline lives there.
+    """
+    rows = conn.execute(
+        """SELECT l.scrape_run_id AS run_id, r.started_at, l.listing_date, l.price
+           FROM listings l
+           JOIN scrape_runs r ON r.id = l.scrape_run_id
+           WHERE l.sahibinden_id = ?
+           ORDER BY l.scrape_run_id""",
+        (sahibinden_id,),
+    ).fetchall()
+    return [
+        {
+            "run_id": row["run_id"],
+            "run_date": (row["started_at"] or "")[:10],
+            "listing_date": row["listing_date"],
+            "price": row["price"],
+        }
+        for row in rows
+    ]
+```
+
+- [ ] **Step 8: Run both tests to verify they pass**
+
+Run: `.venv/bin/python -m pytest tests/test_signals_top.py -v`
+Expected: PASS (2 tests).
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add scraper/signals.py tests/test_signals_top.py
-git commit -m "feat: top_bargains query for console summary"
+git commit -m "feat: top_bargains + price_history queries"
 ```
 
 ---
@@ -1111,15 +1175,72 @@ px.scatter(sig, x="bump_count", y="price_drop_pct", size="days_on_market",
            title="Bumps vs. price drop — top-right = motivated sellers").show()
 ```
 
-- [ ] **Step 3: Run the new cells to verify they execute**
+- [ ] **Step 3: Add a per-car price-history lookup cell**
 
-Open the notebook and run the two new cells against the live `taycan.db` (it has data). Expected: the table renders with cars sorted by score descending; the three charts render without error. If `listing_signals` is empty (fresh DB), first run `.venv/bin/python -c "from db.database import init_db, get_connection; from scraper.signals import compute_signals; init_db(); c=get_connection(); compute_signals(c); c.close(); print('signals-built')"`.
+Add a cell that takes a `sahibinden_id` and plots its full price + bump timeline (line chart) plus the raw observation table, via the `price_history` helper:
+```python
+import sqlite3
+import pandas as pd
+import plotly.express as px
+from scraper.signals import price_history
 
-- [ ] **Step 4: Commit**
+CAR_ID = "1242993562"  # paste a sahibinden_id (the trailing number in a listing url)
+
+conn = sqlite3.connect("taycan.db")
+conn.row_factory = sqlite3.Row
+hist = pd.DataFrame(price_history(conn, CAR_ID))
+conn.close()
+
+display(hist)
+if not hist.empty:
+    px.line(hist, x="run_date", y="price", markers=True,
+            hover_data=["listing_date"],
+            title=f"Price history — {CAR_ID}").show()
+else:
+    print(f"No history for {CAR_ID}")
+```
+
+- [ ] **Step 4: Add a top-bargains price-trajectory small-multiples cell**
+
+Add a cell that draws each top-bargain car's price trajectory in a faceted grid:
+```python
+import sqlite3
+import pandas as pd
+import plotly.express as px
+from scraper.signals import top_bargains, price_history
+
+conn = sqlite3.connect("taycan.db")
+conn.row_factory = sqlite3.Row
+ids = [r["sahibinden_id"] for r in top_bargains(conn, 9)]
+frames = []
+for sid in ids:
+    h = pd.DataFrame(price_history(conn, sid))
+    if not h.empty:
+        h["car"] = sid
+        frames.append(h)
+conn.close()
+
+allh = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+if not allh.empty:
+    fig = px.line(allh, x="run_date", y="price", color="car",
+                  facet_col="car", facet_col_wrap=3, markers=True, height=650,
+                  title="Top bargain price trajectories")
+    fig.update_yaxes(matches=None)
+    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+    fig.show()
+else:
+    print("No bargain history yet.")
+```
+
+- [ ] **Step 5: Run the new cells to verify they execute**
+
+Open the notebook and run the four new cells against the live `taycan.db` (it has data). Expected: the ranked table renders sorted by score descending; the three signal charts render; the per-car cell renders a price-over-time line + table; the small-multiples cell renders a faceted grid of trajectories. If `listing_signals` is empty (fresh DB), first run `.venv/bin/python -c "from db.database import init_db, get_connection; from scraper.signals import compute_signals; init_db(); c=get_connection(); compute_signals(c); c.close(); print('signals-built')"`.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add analysis.ipynb
-git commit -m "feat: notebook bargain report + signal charts"
+git commit -m "feat: notebook bargain report, signal charts + price history"
 ```
 
 ---
