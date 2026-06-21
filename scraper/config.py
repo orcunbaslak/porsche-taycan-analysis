@@ -14,8 +14,8 @@ SEARCH_URL = f"{BASE_URL}/porsche-taycan-elektrik?pagingSize=50&sorting=date_des
 DEFAULT_DELAY = 4.0
 
 # Human-like browsing behavior
-HUMAN_DELAY_MIN = 5.0  # seconds
-HUMAN_DELAY_MAX = 10.0
+HUMAN_DELAY_MIN = 6.0  # seconds
+HUMAN_DELAY_MAX = 14.0
 
 # Scroll simulation
 SCROLL_STEP_MIN = 200  # pixels
@@ -30,9 +30,9 @@ PHOTO_CLICK_PROB_LIST = 0.35  # chance to click a thumbnail on list page
 PHOTO_CLICK_PROB_DETAIL = 0.25  # chance to click gallery photos on detail page
 
 # Long break: periodic longer pause to mimic real browsing
-LONG_BREAK_EVERY = 15  # pages
-LONG_BREAK_MIN = 15.0  # seconds
-LONG_BREAK_MAX = 30.0
+LONG_BREAK_EVERY = 12  # pages
+LONG_BREAK_MIN = 20.0  # seconds
+LONG_BREAK_MAX = 45.0
 
 # Playwright settings
 VIEWPORT = {"width": 1440, "height": 900}

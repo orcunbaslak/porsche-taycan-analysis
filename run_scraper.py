@@ -17,6 +17,8 @@ from scraper.browser import BrowserManager
 from scraper.list_scraper import scrape_search_pages
 from scraper.detail_scraper import scrape_detail_pages
 from scraper.navigate import safe_goto
+from scraper.signals import compute_signals, top_bargains
+from scraper.config import REPORT_TOP_N
 
 
 BOT_CHECK_URLS = [
@@ -49,14 +51,28 @@ def progress_bar(current, total, scraped):
         print()
 
 
+def _report_signal(conn):
+    """Recompute the bargain signal and print the top candidates (full report in the notebook)."""
+    print("\n=== Computing bargain signal ===")
+    compute_signals(conn)
+    bargains = top_bargains(conn, REPORT_TOP_N)
+    if bargains:
+        print("Top bargain candidates (full report in analysis.ipynb):")
+        for r in bargains:
+            price = f"{r['current_price']:,}" if r["current_price"] is not None else "?"
+            print(f"  score {r['motivation_score']:.0f} | {r['model']} {r['year']} "
+                  f"| {price} TL | -{r['price_drop_pct']:.0f}% | "
+                  f"{r['bump_count']} bumps | {r['days_on_market']}d | {r['url']}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Scrape Porsche Taycan listings from sahibinden.com")
     parser.add_argument("--list-only", action="store_true", help="Only scrape search result pages")
     parser.add_argument("--resume", action="store_true", help="Resume detail scraping for the latest run")
     parser.add_argument("--delay", type=float, default=None,
                         help="Override base delay between requests (seconds). Uses delay..delay*2 range. Default: 5-10s human delay.")
-    parser.add_argument("--full", action="store_true",
-                        help="Full scan: visit all list pages (no early stop) and mark inactive listings")
+    parser.add_argument("--max-details", type=int, default=None,
+                        help="Cap detail-page fetches this run; remainder retried next run.")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
     parser.add_argument("--bot-check", action="store_true", help="Open bot detection test pages and wait")
     args = parser.parse_args()
@@ -88,20 +104,18 @@ def main():
             page = browser.new_page()
 
             if not args.resume:
-                # Step 1: Scrape search result pages
+                # Step 1: Scrape search result pages (always a full sweep)
                 print("\n=== Phase 1: Scraping search results ===")
-                total_listings, full_scan = scrape_search_pages(page, conn, run_id, delay=args.delay, full=args.full)
+                total_listings = scrape_search_pages(page, conn, run_id, delay=args.delay)
                 print(f"\nFound {total_listings} listings total.")
 
-                # Only mark inactive when we did a full scan (visited all pages)
-                if full_scan:
-                    deactivated = mark_inactive_listings(conn, run_id)
-                    if deactivated:
-                        print(f"Marked {deactivated} listings as inactive (no longer on sahibinden).")
-                else:
-                    print("Partial scan (stopped early) — skipping inactive marking.")
+                # Full sweep every run -> always safe to mark inactive.
+                deactivated = mark_inactive_listings(conn, run_id)
+                if deactivated:
+                    print(f"Marked {deactivated} listings as inactive (no longer on sahibinden).")
 
                 if args.list_only:
+                    _report_signal(conn)
                     status = "completed"
                     print("\n--list-only mode: skipping detail scraping.")
                     return
@@ -109,11 +123,13 @@ def main():
             if not args.list_only:
                 # Step 2: Scrape detail pages (copies from previous runs when possible)
                 print("\n=== Phase 2: Scraping listing details ===")
-                processed = scrape_detail_pages(page, conn, run_id, delay=args.delay, progress_cb=progress_bar)
+                processed = scrape_detail_pages(page, conn, run_id, delay=args.delay,
+                                                progress_cb=progress_bar, max_details=args.max_details)
                 stats = get_run_stats(conn, run_id)
                 total_listings = stats["total"]
                 print(f"\nDetail scraping complete: {stats['detail_scraped']}/{stats['total']}")
 
+            _report_signal(conn)
             status = "completed"
 
     except KeyboardInterrupt:
