@@ -113,7 +113,9 @@ def _iso_or_none(d):
 
 def compute_signals(conn):
     """Recompute the listing_signals table from the full cross-run listings history."""
-    latest_row = conn.execute("SELECT MAX(id) AS m FROM scrape_runs").fetchone()
+    # "Latest run" = the latest run that actually HAS listings. A bare MAX(id) from
+    # scrape_runs can point at an empty --resume run, which would mark every car inactive.
+    latest_row = conn.execute("SELECT MAX(scrape_run_id) AS m FROM listings").fetchone()
     latest_run_id = latest_row["m"] if latest_row else None
 
     rows = conn.execute(
@@ -163,7 +165,12 @@ def compute_signals(conn):
 
 
 def top_bargains(conn, n):
-    """Return the top-n active cars by motivation_score, joined to their latest listing row."""
+    """Return the top-n active cars by motivation_score, joined to their latest listing row.
+
+    The join uses each car's OWN latest row (max scrape_run_id for that sahibinden_id), not
+    a single global run — so it's robust to empty --resume runs and to cars last seen in an
+    earlier run.
+    """
     return conn.execute(
         """SELECT s.sahibinden_id, s.motivation_score, s.price_drop_pct, s.bump_count,
                   s.days_on_market, s.num_price_cuts, s.current_price,
@@ -171,7 +178,10 @@ def top_bargains(conn, n):
            FROM listing_signals s
            JOIN listings l
              ON l.sahibinden_id = s.sahibinden_id
-            AND l.scrape_run_id = (SELECT MAX(id) FROM scrape_runs)
+            AND l.scrape_run_id = (
+                SELECT MAX(l2.scrape_run_id) FROM listings l2
+                WHERE l2.sahibinden_id = s.sahibinden_id
+            )
            WHERE s.is_active = 1 AND s.insufficient_history = 0
            ORDER BY s.motivation_score DESC
            LIMIT ?""",
