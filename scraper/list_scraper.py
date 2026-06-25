@@ -5,7 +5,7 @@ import time
 from scraper.config import SEARCH_URL
 from scraper.parsers import parse_listing_rows, has_next_page
 from scraper.human_behavior import human_delay, maybe_long_break, simulate_list_page
-from scraper.navigate import safe_goto, is_block_page, BlockedError
+from scraper.navigate import safe_goto, is_block_page, page_is_blocked, BlockedError
 from db.database import upsert_listing_summary, get_all_known_ids
 
 
@@ -32,7 +32,18 @@ def scrape_search_pages(page, conn, run_id, delay=None):
         print(f"[LIST] Loading: {url}")
 
         safe_goto(page, url)
-        page.wait_for_selector("tr.searchResultsItem", timeout=30000)
+        # A timeout here can be the rate-limit page (no results selector, arrived
+        # via a delayed redirect) — surface it as BlockedError, not a generic crash.
+        try:
+            page.wait_for_selector("tr.searchResultsItem", timeout=30000)
+        except Exception:
+            if page_is_blocked(page):
+                raise BlockedError(
+                    f"Block page detected during list scan at offset {offset} "
+                    "(results selector never appeared — delayed redirect to the "
+                    "rate-limit page)."
+                )
+            raise
         time.sleep(1)  # small extra wait for DOM
 
         simulate_list_page(page)

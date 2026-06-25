@@ -17,6 +17,7 @@ from scraper.config import (
     LONG_BREAK_EVERY,
     LONG_BREAK_MIN,
     LONG_BREAK_MAX,
+    VIEWPORT,
 )
 
 
@@ -31,6 +32,53 @@ def maybe_long_break(page_count):
         pause = random.uniform(LONG_BREAK_MIN, LONG_BREAK_MAX)
         print(f"[HUMAN] Taking a {pause:.0f}s break after {page_count} pages...")
         time.sleep(pause)
+
+
+def _bezier_points(sx, sy, ex, ey, steps):
+    """Quadratic Bézier path from (sx,sy) to (ex,ey) with a randomized control point
+    and ease-in-out timing — produces a curved, variable-speed cursor path rather than
+    a straight line. PerimeterX's dominant signal is mouse-movement ML, so armed
+    re-warm loads need believable motion to mint a high-trust _px3 token.
+    """
+    cx = (sx + ex) / 2 + random.uniform(-160, 160)
+    cy = (sy + ey) / 2 + random.uniform(-120, 120)
+    pts = []
+    for i in range(1, steps + 1):
+        t = i / steps
+        te = t * t * (3 - 2 * t)  # smoothstep ease-in-out
+        x = (1 - te) ** 2 * sx + 2 * (1 - te) * te * cx + te ** 2 * ex
+        y = (1 - te) ** 2 * sy + 2 * (1 - te) * te * cy + te ** 2 * ey
+        pts.append((x, y))
+    return pts
+
+
+def move_mouse_humanlike(page, to_x, to_y, start=None, steps=None):
+    """Move the cursor to (to_x, to_y) along a human-like curved path."""
+    try:
+        sx, sy = start if start else (random.uniform(0, VIEWPORT["width"]),
+                                      random.uniform(0, VIEWPORT["height"]))
+        steps = steps or random.randint(18, 34)
+        for x, y in _bezier_points(sx, sy, to_x, to_y, steps):
+            page.mouse.move(x, y)
+            time.sleep(random.uniform(0.008, 0.03))
+    except Exception:
+        pass
+
+
+def wander_mouse(page, moves=None):
+    """Drift the cursor across a few random points in the viewport, the way a person
+    idly moves the mouse while reading search results (feeds PX good behavioral data)."""
+    try:
+        moves = moves or random.randint(2, 4)
+        last = (random.uniform(0, VIEWPORT["width"]), random.uniform(0, VIEWPORT["height"]))
+        for _ in range(moves):
+            target = (random.uniform(40, VIEWPORT["width"] - 40),
+                      random.uniform(40, VIEWPORT["height"] - 40))
+            move_mouse_humanlike(page, target[0], target[1], start=last)
+            last = target
+            time.sleep(random.uniform(0.1, 0.5))
+    except Exception:
+        pass
 
 
 def scroll_page(page):
@@ -93,8 +141,15 @@ def click_gallery_detail_page(page):
 
 
 def simulate_list_page(page):
-    """Run human-like actions on a search results page."""
+    """Run human-like actions on a search results page.
+
+    This is also the PerimeterX 're-warm': the sensor is armed here, so believable
+    mouse movement + scrolling is what mints a high-trust `_px3` token for the
+    subsequent (sensor-disarmed) detail burst.
+    """
+    wander_mouse(page)
     scroll_page(page)
+    wander_mouse(page)
     click_random_photo_list_page(page)
 
 

@@ -1,7 +1,7 @@
 import time
 import urllib.request
 from rebrowser_playwright.sync_api import sync_playwright
-from scraper.config import VIEWPORT, NAVIGATION_TIMEOUT
+from scraper.config import VIEWPORT, NAVIGATION_TIMEOUT, PX_SENSOR_PATTERNS
 
 STEALTH_JS = """
 // Hide webdriver flag
@@ -70,6 +70,37 @@ class BrowserManager:
         self._cdp = cdp
 
         return page
+
+    @staticmethod
+    def _abort_route(route):
+        try:
+            route.abort()
+        except Exception:
+            try:
+                route.continue_()
+            except Exception:
+                pass
+
+    def disarm_px(self, page):
+        """Block the PerimeterX sensor so it can't observe/score this page's activity.
+        Use during the detail-fetch burst (rides the already-minted `_px3` token)."""
+        if getattr(self, "_px_blocked", False):
+            return
+        for pat in PX_SENSOR_PATTERNS:
+            page.route(pat, self._abort_route)
+        self._px_blocked = True
+
+    def arm_px(self, page):
+        """Re-allow the PerimeterX sensor so a list/home load can mint a fresh `_px3`.
+        Pair with human mouse movement (simulate_list_page) for a high-trust token."""
+        if not getattr(self, "_px_blocked", False):
+            return
+        for pat in PX_SENSOR_PATTERNS:
+            try:
+                page.unroute(pat, self._abort_route)
+            except Exception:
+                pass
+        self._px_blocked = False
 
     def close(self):
         if self._browser:

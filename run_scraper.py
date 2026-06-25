@@ -11,11 +11,15 @@ from db.database import (
     finish_scrape_run,
     get_latest_run_id,
     get_run_stats,
+    get_active_undetailed_listings,
     mark_inactive_listings,
 )
 from scraper.browser import BrowserManager
 from scraper.list_scraper import scrape_search_pages
-from scraper.detail_scraper import scrape_detail_pages
+from scraper.detail_scraper import (
+    scrape_detail_pages, scrape_detail_backlog, scrape_detail_backlog_via_clicks,
+    copy_known_details,
+)
 from scraper.navigate import safe_goto, BlockedError
 from scraper.signals import compute_signals, top_bargains
 from scraper.config import REPORT_TOP_N, DEFAULT_MAX_DETAILS
@@ -68,7 +72,9 @@ def _report_signal(conn):
 def main():
     parser = argparse.ArgumentParser(description="Scrape Porsche Taycan listings from sahibinden.com")
     parser.add_argument("--list-only", action="store_true", help="Only scrape search result pages")
-    parser.add_argument("--resume", action="store_true", help="Resume detail scraping for the latest run")
+    parser.add_argument("--resume", action="store_true",
+                        help="Drain the global detail backlog (active listings missing details, "
+                             "deduped across all runs); no list sweep")
     parser.add_argument("--delay", type=float, default=None,
                         help="Override base delay between requests (seconds). Uses delay..delay*2 range. Default: 5-10s human delay.")
     parser.add_argument("--max-details", type=int, default=DEFAULT_MAX_DETAILS,
@@ -87,12 +93,15 @@ def main():
     conn = get_connection()
 
     if args.resume:
-        run_id = get_latest_run_id(conn)
-        if not run_id:
+        # Drain the global detail backlog (every active listing never detailed in any
+        # run), no list sweep. Use a fresh run for bookkeeping; the drain writes details
+        # onto each backlog listing's own row regardless of which run it belongs to.
+        if not get_latest_run_id(conn):
             print("No previous scrape run found. Run without --resume first.")
             sys.exit(1)
-        stats = get_run_stats(conn, run_id)
-        print(f"Resuming run #{run_id}: {stats['detail_scraped']}/{stats['total']} details scraped")
+        run_id = create_scrape_run(conn)
+        backlog = len(get_active_undetailed_listings(conn))
+        print(f"Resume/drain run #{run_id}: {backlog} active listing(s) still need details.")
     else:
         run_id = create_scrape_run(conn)
         print(f"Started scrape run #{run_id}")
@@ -124,11 +133,24 @@ def main():
             if not args.list_only:
                 # Step 2: Scrape detail pages (copies from previous runs when possible)
                 print("\n=== Phase 2: Scraping listing details ===")
-                processed = scrape_detail_pages(page, conn, run_id, delay=args.delay,
-                                                progress_cb=progress_bar, max_details=args.max_details)
-                stats = get_run_stats(conn, run_id)
-                total_listings = stats["total"]
-                print(f"\nDetail scraping complete: {stats['detail_scraped']}/{stats['total']}")
+                if not args.resume:
+                    # Normal/full run: the Phase-1 sweep already refreshed the full list.
+                    # Copy details we already have (no network) into the fresh rows...
+                    copied = copy_known_details(conn, run_id)
+                    if copied:
+                        print(f"Copied {copied} details from previous runs.")
+                # ...then drain the never-detailed gap (cross-checked against the full
+                # active list) via the PerimeterX-aware click-through — same path for
+                # normal runs and --resume, so both benefit and nothing is missed.
+                processed = scrape_detail_backlog_via_clicks(
+                    browser, page, conn,
+                    max_details=args.max_details, progress_cb=progress_bar)
+                remaining = len(get_active_undetailed_listings(conn))
+                if args.resume:
+                    total_listings = processed
+                else:
+                    total_listings = get_run_stats(conn, run_id)["total"]
+                print(f"\nDetails: {processed} fetched this run; {remaining} still in backlog.")
 
             _report_signal(conn)
             status = "completed"

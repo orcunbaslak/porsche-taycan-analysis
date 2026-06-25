@@ -148,6 +148,34 @@ def get_unscraped_listings(conn, run_id):
     return [dict(r) for r in rows]
 
 
+def get_active_undetailed_listings(conn):
+    """Global detail backlog: every ACTIVE listing (deduped by sahibinden_id, using
+    its latest row) that has NEVER been detail-scraped in ANY run.
+
+    This compares the full active list against everything already detail-scraped, so a
+    drain fetches only the genuine gap and never re-fetches a car we already have — and
+    it is not tied to a single (possibly partial) run the way get_unscraped_listings is.
+    """
+    rows = conn.execute(
+        """
+        SELECT l.id, l.sahibinden_id, l.url
+        FROM listings l
+        JOIN (
+            SELECT sahibinden_id, MAX(scrape_run_id) AS max_run
+            FROM listings GROUP BY sahibinden_id
+        ) latest
+          ON latest.sahibinden_id = l.sahibinden_id
+         AND latest.max_run = l.scrape_run_id
+        WHERE l.is_active = 1
+          AND l.url IS NOT NULL AND l.url <> ''
+          AND l.sahibinden_id NOT IN (
+              SELECT sahibinden_id FROM listings WHERE detail_scraped = 1
+          )
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_latest_run_id(conn):
     """Get the most recent scrape run ID."""
     row = conn.execute(
