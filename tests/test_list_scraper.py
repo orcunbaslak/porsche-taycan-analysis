@@ -104,13 +104,13 @@ def test_hidden_decoy_rows_are_dropped(monkeypatch):
     assert total == 2
 
 
-def test_nine_digit_id_dropped_unless_already_detailed(monkeypatch):
-    # Second check: a 9-digit ID is a decoy even if "visible" — UNLESS it's confirmed real
-    # (detail-scraped before), which exempts the one genuine old 9-digit car (985568902).
+def test_nine_digit_ids_always_dropped(monkeypatch):
+    # Second check: any sub-10-digit numeric ID is a decoy, even if "visible" and even if it
+    # was detail-scraped before. Real listing IDs are always 10 digits.
     rows = [
         {"sahibinden_id": "1324000003", "listing_date": "Bugün"},   # real 10-digit
-        {"sahibinden_id": "846999999", "listing_date": "Bugün"},    # 9-digit decoy, never detailed
-        {"sahibinden_id": "985568902", "listing_date": "Bugün"},    # 9-digit but real (detailed before)
+        {"sahibinden_id": "846999999", "listing_date": "Bugün"},    # 9-digit decoy
+        {"sahibinden_id": "985568902", "listing_date": "Bugün"},    # 9-digit, detailed before — still dropped
     ]
 
     def fake_parse(html):
@@ -140,7 +140,7 @@ def test_nine_digit_id_dropped_unless_already_detailed(monkeypatch):
         init_db(db_path)
         conn = get_connection(db_path)
         prev = create_scrape_run(conn)
-        # 985568902 was detail-scraped in an earlier run -> confirmed real -> exempt
+        # Even a previously detail-scraped 9-digit ID is dropped now (no exception).
         conn.execute("INSERT INTO listings (scrape_run_id, sahibinden_id, url, detail_scraped) "
                      "VALUES (?, '985568902', 'http://x/985', 1)", (prev,))
         conn.commit()
@@ -150,5 +150,5 @@ def test_nine_digit_id_dropped_unless_already_detailed(monkeypatch):
             "SELECT DISTINCT sahibinden_id FROM listings WHERE scrape_run_id=?", (run_id,)).fetchall()}
         conn.close()
 
-    assert ids == {"1324000003", "985568902"}   # 846999999 dropped, real 9-digit kept
-    assert total == 2
+    assert ids == {"1324000003"}   # both 9-digit IDs dropped
+    assert total == 1

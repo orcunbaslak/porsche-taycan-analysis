@@ -9,17 +9,15 @@ from scraper.navigate import safe_goto, is_block_page, page_is_blocked, BlockedE
 from db.database import upsert_listing_summary, get_all_known_ids
 
 
-def _drop_decoy_rows(page, listings, known_real):
+def _drop_decoy_rows(page, listings):
     """Drop phantom `searchResultsItem` rows that sahibinden injects to catch row-parsing
     bots. Two independent checks:
 
     1. Visibility — real listings always render; decoys are hidden (display:none → no
        offsetParent / zero height). This is the primary, rotation-proof signal.
-    2. ID range — real listing IDs are 10 digits (~1.0–1.3B); the decoys use out-of-band
-       9-digit IDs (~846M). A sub-10-digit *numeric* ID is treated as a decoy UNLESS we've
-       already confirmed it real (detail-scraped before) — that preserves the one genuine
-       old 9-digit car (985568902) and any future real one, and also catches decoys hidden
-       by tricks offsetParent misses (visibility:hidden, opacity:0, off-screen).
+    2. ID width — every real listing ID is 10 digits (~1.0–1.3B). Any sub-10-digit numeric
+       ID is out-of-band and treated as a decoy (the observed traps are 9-digit ~846M).
+       Catches decoys hidden by tricks offsetParent misses (visibility:hidden, opacity:0).
 
     Fail-open on the visibility read (keep rows) so a dead/odd DOM never drops real cars.
     """
@@ -37,7 +35,7 @@ def _drop_decoy_rows(page, listings, known_real):
         if visible is not None and sid not in visible:
             dropped_hidden += 1
             continue
-        if sid.isdigit() and len(sid) < 10 and sid not in known_real:
+        if sid.isdigit() and len(sid) < 10:   # real IDs are 10 digits; sub-10 = decoy
             dropped_id += 1
             continue
         kept.append(l)
@@ -60,10 +58,6 @@ def scrape_search_pages(page, conn, run_id, delay=None):
     Returns total_found (int).
     """
     known_ids = get_all_known_ids(conn)
-    # IDs we've ever successfully detail-scraped = confirmed-real, exempt from the
-    # 9-digit decoy check (protects the one genuine old 9-digit car, 985568902).
-    known_real = {str(r["sahibinden_id"]) for r in
-                  conn.execute("SELECT DISTINCT sahibinden_id FROM listings WHERE detail_scraped=1")}
     offset = 0
     total_found = 0
     page_count = 0
@@ -92,7 +86,7 @@ def scrape_search_pages(page, conn, run_id, delay=None):
         html = page.content()
         if is_block_page(page.url, html):
             raise BlockedError(f"Block page detected during list scan at offset {offset}.")
-        listings = _drop_decoy_rows(page, parse_listing_rows(html), known_real)
+        listings = _drop_decoy_rows(page, parse_listing_rows(html))
 
         if not listings:
             print(f"[LIST] No listings found at offset {offset}, stopping.")
