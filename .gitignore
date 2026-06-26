@@ -4,5 +4,6 @@ __pycache__/
 *.db-shm
 *.db-wal
 *.db-journal
+taycan_all_cars_sheet.csv
 .ipynb_checkpoints/
 .DS_Store
