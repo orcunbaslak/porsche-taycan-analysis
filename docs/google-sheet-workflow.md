@@ -11,7 +11,7 @@ notebook's Value Score (+ bargain signals), and writes one row per
 `All Cars` tab keyed by `sahibinden_id`:
 
 - scraped fields and the ranking/score columns are refreshed every run
-- your manual note columns are preserved across refreshes
+- your `my_priority` note column is preserved across refreshes
 - disappeared listings stay in the sheet with `is_active = No`
 - Google filters / filter views survive because the tab is updated in place
 
@@ -20,17 +20,16 @@ notes. Always sync through this script.
 
 ### Column groups (left to right)
 
-1. **Manual** (frozen, you fill these in): `my_status`, `my_priority`,
-   `phone_price`, `phone_date`, `my_offer`, `next_action`, `seller_notes`,
-   `damage_story`, `warranty_verified`, `battery_health`, `inspection_notes`,
-   `owner_notes`
+1. **Manual** (you fill this in): `my_priority`
 2. **Score / ranking** (the notebook's ranking — sort on these): `rank`,
    `value_score`, `motivation_score`, `price_drop_pct`, `num_price_cuts`,
-   `bump_count`, `days_on_market`, `feature_count`, `dq_reason`
-3. **Derived**: `ask_price_m_tl`, `phone_price_m_tl`, `phone_discount_pct`,
-   `is_clean`, `is_bayi`, `battery`, `km_per_year`, `first_seen_date`,
-   `last_seen_date`, `runs_seen_total`, `price_history`
-4. **Source**: the raw scraped fields straight from `taycan.db`
+   `bump_count`, `days_on_market`, `dq_reason`
+3. **Derived**: `ask_price_m_tl`, `is_clean`, `is_bayi`, `battery`,
+   `km_per_year`, `first_seen_date`, `last_seen_date`, `runs_seen_total`,
+   `price_history`
+4. **Source**: the raw scraped fields straight from `taycan.db` (`is_active`,
+   `detail_scraped`, `sahibinden_id`, `url`, `title`, `model`, `year`, `km`,
+   `color`, `price`, `listing_date`, location, damage counts, `description`, …)
 
 `rank`/`value_score` are only populated for the scored universe (active,
 detail-scraped, non-wagon cars); inactive or undetailed cars leave them blank.
@@ -84,17 +83,12 @@ Good default filters for shopping:
 
 - `is_active` = `Yes`
 - `dq_reason` is empty
-- `heavy_damage_record` is not `Evet`
 - `is_clean` = `Yes`, or allow one cosmetic paint only
 - `year` in your target range
-- `price` or `phone_price` within budget
-- `my_status` not `Pass`
+- `price` within budget
 
 Sort by `rank` (ascending) or `value_score` (descending) to see the best-value
 cars first; sort by `motivation_score` to surface the most motivated sellers.
-
-Use `phone_price` for real negotiation numbers. `phone_discount_pct` is
-recomputed whenever the sync script runs.
 
 `is_clean` means the scraped damage summary has zero changed, painted, and
 local-painted panels. It does not mean no Tramer, no mechanical repair, no

@@ -59,24 +59,11 @@ NEW_CAR_YEAR_THRESHOLD = 2023
 DISQUALIFY_NEW_CAR_CHANGED = False
 
 MANUAL_COLUMNS = [
-    "my_status",
     "my_priority",
-    "phone_price",
-    "phone_date",
-    "my_offer",
-    "next_action",
-    "seller_notes",
-    "damage_story",
-    "warranty_verified",
-    "battery_health",
-    "inspection_notes",
-    "owner_notes",
 ]
 
 DERIVED_COLUMNS = [
     "ask_price_m_tl",
-    "phone_price_m_tl",
-    "phone_discount_pct",
     "is_clean",
     "is_bayi",
     "battery",
@@ -98,25 +85,9 @@ SOURCE_COLUMNS = [
     "km",
     "color",
     "price",
-    "currency",
     "listing_date",
     "location_city",
     "location_district",
-    "fuel_type",
-    "transmission",
-    "vehicle_condition",
-    "body_type",
-    "engine_power",
-    "traction",
-    "warranty",
-    "heavy_damage_record",
-    "plate_nationality",
-    "seller_type",
-    "trade_in",
-    "seller_name",
-    "seller_agent",
-    "seller_phone",
-    "seller_years",
     "damage_original_count",
     "damage_painted_count",
     "damage_local_painted_count",
@@ -134,7 +105,6 @@ SCORE_COLUMNS = [
     "num_price_cuts",
     "bump_count",
     "days_on_market",
-    "feature_count",
     "dq_reason",
 ]
 
@@ -142,7 +112,7 @@ SHEET_COLUMNS = MANUAL_COLUMNS + SCORE_COLUMNS + DERIVED_COLUMNS + SOURCE_COLUMN
 
 # Score columns that should be written to the sheet as integers (the rest of
 # SCORE_COLUMNS are floats or free text).
-INT_SCORE_COLUMNS = {"rank", "num_price_cuts", "bump_count", "days_on_market", "feature_count"}
+INT_SCORE_COLUMNS = {"rank", "num_price_cuts", "bump_count", "days_on_market"}
 
 
 @dataclass(frozen=True)
@@ -162,7 +132,7 @@ class SyncResult:
 
 SCORE_EXPORT_COLUMNS = [
     "rank", "value_score", "motivation_score", "price_drop_pct",
-    "num_price_cuts", "bump_count", "days_on_market", "feature_count", "dq_reason",
+    "num_price_cuts", "bump_count", "days_on_market", "dq_reason",
 ]
 
 
@@ -471,15 +441,14 @@ def load_all_cars(db_path: str) -> list[dict[str, str]]:
         row["detail_scraped"] = "Yes" if str(merged.get("detail_scraped", "")) == "1" else "No"
         row["is_clean"] = clean_status(row)
         row["is_bayi"] = "Yes" if detect_bayi(row) else "No"
-        row["battery"] = detect_battery(row)
+        # engine_power is no longer a displayed column, so read it from the full DB row.
+        row["battery"] = detect_battery(merged)
         row["km_per_year"] = km_per_year(row)
         row["first_seen_date"] = _clean(seen["first_seen_date"] if seen else "")
         row["last_seen_date"] = _clean(seen["last_seen_date"] if seen else "")
         row["runs_seen_total"] = _clean(seen["runs_seen_total"] if seen else "")
         row["price_history"] = history_by_id.get(sid, "")
         row["ask_price_m_tl"] = format_m_tl(row.get("price"))
-        row["phone_price_m_tl"] = format_m_tl(row.get("phone_price"))
-        row["phone_discount_pct"] = format_discount(row.get("phone_price"), row.get("price"))
         car_scores = scores.get(str(sid), {})
         for score_col in SCORE_COLUMNS:
             row[score_col] = car_scores.get(score_col, "")
@@ -555,8 +524,6 @@ def preserve_manual_columns(rows: list[dict[str, str]], existing_rows: list[dict
         previous = existing_by_id.get(row[KEY_COLUMN], {})
         for col in MANUAL_COLUMNS:
             row[col] = previous.get(col, row.get(col, ""))
-        row["phone_price_m_tl"] = format_m_tl(row.get("phone_price"))
-        row["phone_discount_pct"] = format_discount(row.get("phone_price"), row.get("price"))
     return rows
 
 
@@ -686,12 +653,9 @@ def column_letter(index: int) -> str:
 
 
 INTEGER_COLUMNS = {
-    "phone_price",
-    "my_offer",
     "year",
     "km",
     "price",
-    "seller_years",
     "damage_original_count",
     "damage_painted_count",
     "damage_local_painted_count",
@@ -703,12 +667,10 @@ INTEGER_COLUMNS = {
     "num_price_cuts",
     "bump_count",
     "days_on_market",
-    "feature_count",
 }
 
 FLOAT_COLUMNS = {
     "ask_price_m_tl",
-    "phone_price_m_tl",
     "value_score",
     "motivation_score",
     "price_drop_pct",
@@ -864,7 +826,7 @@ def apply_sheet_formatting(
             "updateSheetProperties": {
                 "properties": {
                     "sheetId": sheet_id,
-                    "gridProperties": {"frozenRowCount": 1, "frozenColumnCount": len(MANUAL_COLUMNS)},
+                    "gridProperties": {"frozenRowCount": 1, "frozenColumnCount": 0},
                 },
                 "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
             }
@@ -917,22 +879,12 @@ def apply_sheet_formatting(
     clear_conditional_rules(sheets, spreadsheet_id, sheet_id)
 
     format_requests = [
-        conditional_formula(sheet_id, row_count, "$A2=\"Pass\"", rgb(0.89, 0.89, 0.89), rgb(0.43, 0.43, 0.43)),
-        conditional_formula(sheet_id, row_count, "$A2=\"Shortlist\"", rgb(0.82, 0.93, 0.82)),
-        conditional_formula(sheet_id, row_count, "$A2=\"Inspect\"", rgb(0.84, 0.78, 0.94)),
-        conditional_formula(sheet_id, row_count, "$A2=\"Call\"", rgb(1.00, 0.95, 0.75)),
         conditional_formula(sheet_id, row_count, f"${col('is_active')}2=\"No\"", rgb(0.93, 0.93, 0.93), rgb(0.45, 0.45, 0.45)),
-        conditional_formula(sheet_id, row_count, f"${col('heavy_damage_record')}2=\"Evet\"", rgb(0.96, 0.78, 0.76)),
         conditional_formula(sheet_id, row_count, f"N(${col('damage_changed_count')}2)>0", rgb(1.00, 0.88, 0.70)),
         conditional_formula(sheet_id, row_count, f"${col('is_clean')}2=\"Yes\"", rgb(0.83, 0.93, 0.84)),
-        conditional_formula(sheet_id, row_count, f"${col('warranty')}2=\"Evet\"", rgb(0.80, 0.91, 1.00)),
-        number_format(sheet_id, "phone_price", "NUMBER", "#,##0"),
-        number_format(sheet_id, "my_offer", "NUMBER", "#,##0"),
         number_format(sheet_id, "price", "NUMBER", "#,##0"),
         number_format(sheet_id, "km", "NUMBER", "#,##0"),
         number_format(sheet_id, "ask_price_m_tl", "NUMBER", "0.000"),
-        number_format(sheet_id, "phone_price_m_tl", "NUMBER", "0.000"),
-        number_format(sheet_id, "phone_discount_pct", "PERCENT", "0.00%"),
         number_format(sheet_id, "rank", "NUMBER", "0"),
         number_format(sheet_id, "value_score", "NUMBER", "0.0"),
         number_format(sheet_id, "motivation_score", "NUMBER", "0.0"),
@@ -940,7 +892,6 @@ def apply_sheet_formatting(
         number_format(sheet_id, "num_price_cuts", "NUMBER", "0"),
         number_format(sheet_id, "bump_count", "NUMBER", "0"),
         number_format(sheet_id, "days_on_market", "NUMBER", "0"),
-        number_format(sheet_id, "feature_count", "NUMBER", "0"),
     ]
     sheets.batchUpdate(spreadsheetId=spreadsheet_id, body={"requests": format_requests}).execute()
 
@@ -988,10 +939,15 @@ def set_basic_filter_request(sheet_id: int, row_count: int, existing_filter: dic
         }
     }
     if existing_filter:
-        if existing_filter.get("criteria"):
-            sheet_filter["criteria"] = existing_filter["criteria"]
-        if existing_filter.get("sortSpecs"):
-            sheet_filter["sortSpecs"] = existing_filter["sortSpecs"]
+        # Drop any saved criteria/sort that point past the (possibly narrower) new
+        # column set, or the API rejects the whole request.
+        max_idx = len(SHEET_COLUMNS)
+        criteria = {k: v for k, v in (existing_filter.get("criteria") or {}).items() if int(k) < max_idx}
+        if criteria:
+            sheet_filter["criteria"] = criteria
+        sort_specs = [s for s in (existing_filter.get("sortSpecs") or []) if int(s.get("dimensionIndex", 0)) < max_idx]
+        if sort_specs:
+            sheet_filter["sortSpecs"] = sort_specs
     return {"setBasicFilter": {"filter": sheet_filter}}
 
 
