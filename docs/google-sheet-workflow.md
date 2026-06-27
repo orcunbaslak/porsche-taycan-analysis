@@ -1,41 +1,41 @@
 # Google Sheet workflow
 
-Use the repo as the data source and Google Sheets as the buying cockpit.
+Use the repo as the data source and Google Sheets as the buying cockpit. One
+script does everything: `sync_all_cars_sheet.py`.
 
-## Why this shape
+## What it does
 
-Do not re-import `taycan_scores.csv` into a sheet by hand each time. That deletes or scrambles your working notes. Instead, keep a stable `Listings` tab keyed by `sahibinden_id`:
+`sync_all_cars_sheet.py` reads `taycan.db`, scores/ranks the active cars with the
+notebook's Value Score (+ bargain signals), and writes one row per
+`sahibinden_id` — including inactive/no-longer-listed cars — to a stable
+`All Cars` tab keyed by `sahibinden_id`:
 
-- scraped/scored columns are refreshed from `taycan_scores.csv`
-- manual columns are preserved across refreshes
-- disappeared listings stay in the sheet with `active_in_latest_export = No`
-- Google filters/filter views remain because the tab is updated in place
+- scraped fields and the ranking/score columns are refreshed every run
+- your manual note columns are preserved across refreshes
+- disappeared listings stay in the sheet with `is_active = No`
+- Google filters / filter views survive because the tab is updated in place
 
-Manual columns currently preserved:
+Do not re-import a CSV into the sheet by hand — that scrambles your working
+notes. Always sync through this script.
 
-- `my_status`
-- `my_priority`
-- `phone_price`
-- `phone_date`
-- `my_offer`
-- `next_action`
-- `seller_notes`
-- `damage_story`
-- `warranty_verified`
-- `battery_health`
-- `inspection_notes`
-- `owner_notes`
+### Column groups (left to right)
 
-## Local CSV first
+1. **Manual** (frozen, you fill these in): `my_status`, `my_priority`,
+   `phone_price`, `phone_date`, `my_offer`, `next_action`, `seller_notes`,
+   `damage_story`, `warranty_verified`, `battery_health`, `inspection_notes`,
+   `owner_notes`
+2. **Score / ranking** (the notebook's ranking — sort on these): `rank`,
+   `value_score`, `motivation_score`, `price_drop_pct`, `num_price_cuts`,
+   `bump_count`, `days_on_market`, `feature_count`, `dq_reason`
+3. **Derived**: `ask_price_m_tl`, `phone_price_m_tl`, `phone_discount_pct`,
+   `is_clean`, `is_bayi`, `battery`, `km_per_year`, `first_seen_date`,
+   `last_seen_date`, `runs_seen_total`, `price_history`
+4. **Source**: the raw scraped fields straight from `taycan.db`
 
-```bash
-python export_scores.py
-python google_sheet_sync.py --local taycan_buyer_sheet.csv
-```
+`rank`/`value_score` are only populated for the scored universe (active,
+detail-scraped, non-wagon cars); inactive or undetailed cars leave them blank.
 
-You can import `taycan_buyer_sheet.csv` into Google Sheets manually. This is the simplest start.
-
-## Direct Google Sheets sync
+## Setup (once)
 
 Install the optional Google dependencies:
 
@@ -43,24 +43,46 @@ Install the optional Google dependencies:
 python -m pip install -r requirements-google.txt
 ```
 
-Create a Google Cloud service account with Sheets API access, download its JSON credentials, then share your Google Sheet with the service account email.
+Credentials and the spreadsheet id are baked into the script. The service
+account is `orcun-sheetswriter@sacred-alpha-382721.iam.gserviceaccount.com`, its
+key lives in Bitwarden, and the target sheet is already shared with it.
 
-Run:
+## Run it
+
+Unlock Bitwarden once per shell, then run:
 
 ```bash
-python export_scores.py
-python google_sheet_sync.py \
-  --spreadsheet-id YOUR_SPREADSHEET_ID \
-  --service-account /path/to/service-account.json
+export BW_SESSION="$(bw unlock --raw)"
+python sync_all_cars_sheet.py
 ```
 
-The script writes to a `Listings` tab by default. Use `--worksheet SomeName` if you want another tab.
+That's it — the script fetches the service-account key from Bitwarden (to a
+`0600` file under `~/.config/gcloud/keys/`), writes the local
+`taycan_all_cars_sheet.csv`, and syncs the `All Cars` tab.
+
+### Credential resolution order
+
+The script looks for the service-account JSON in this order, using the first it
+finds:
+
+1. `--service-account /path/to/key.json`
+2. `$GOOGLE_APPLICATION_CREDENTIALS` (if the file exists)
+3. Bitwarden (requires `BW_SESSION`)
+
+### Other options
+
+```bash
+python sync_all_cars_sheet.py --local-only        # write the CSV, skip Google
+python sync_all_cars_sheet.py --worksheet "Other" # sync a different tab
+python sync_all_cars_sheet.py --no-filter         # skip freeze/filter/colour formatting
+python sync_all_cars_sheet.py --spreadsheet-id ID # override the baked-in sheet
+```
 
 ## Recommended filters
 
 Good default filters for shopping:
 
-- `active_in_latest_export` = `Yes`
+- `is_active` = `Yes`
 - `dq_reason` is empty
 - `heavy_damage_record` is not `Evet`
 - `is_clean` = `Yes`, or allow one cosmetic paint only
@@ -68,6 +90,13 @@ Good default filters for shopping:
 - `price` or `phone_price` within budget
 - `my_status` not `Pass`
 
-Use `phone_price` for real negotiation numbers. `phone_discount_pct` is recomputed whenever the sync script runs.
+Sort by `rank` (ascending) or `value_score` (descending) to see the best-value
+cars first; sort by `motivation_score` to surface the most motivated sellers.
 
-`is_clean` means the scraped damage summary has zero changed, painted, and local-painted panels. It does not mean no Tramer, no mechanical repair, no underbody/cooling-system impact, or no battery/warranty risk. In the all-cars export, undetailed rows are marked `Unknown`.
+Use `phone_price` for real negotiation numbers. `phone_discount_pct` is
+recomputed whenever the sync script runs.
+
+`is_clean` means the scraped damage summary has zero changed, painted, and
+local-painted panels. It does not mean no Tramer, no mechanical repair, no
+underbody/cooling-system impact, or no battery/warranty risk. Undetailed rows
+are marked `Unknown`.
