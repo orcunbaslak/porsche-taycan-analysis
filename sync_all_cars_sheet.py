@@ -763,16 +763,19 @@ def sync_google_sheet(
 
     values = values_for_sheet(rows)
     end_col = column_letter(len(SHEET_COLUMNS))
-    clear_range = f"'{worksheet}'!A:{end_col}"
     update_range = f"'{worksheet}'!A1:{end_col}{len(values)}"
 
-    sheets.values().clear(spreadsheetId=spreadsheet_id, range=clear_range, body={}).execute()
+    # Clear the ENTIRE sheet, not a fixed A:<end_col> window. A narrower clear
+    # leaves stale trailing columns from any previous/wider layout behind, which
+    # then read back as duplicate columns.
+    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"'{worksheet}'", body={}).execute()
     sheets.values().update(
         spreadsheetId=spreadsheet_id,
         range=update_range,
         valueInputOption="RAW",
         body={"values": values},
     ).execute()
+    trim_surplus_columns(sheets, spreadsheet_id, sheet_id, len(SHEET_COLUMNS))
 
     if apply_filter:
         apply_sheet_formatting(sheets, spreadsheet_id, sheet_id, len(values), existing_filter)
@@ -808,6 +811,31 @@ def read_basic_filter(sheets, spreadsheet_id: str, sheet_id: int) -> dict | None
         if int(props.get("sheetId", -1)) == sheet_id:
             return sheet.get("basicFilter")
     return None
+
+
+def trim_surplus_columns(sheets, spreadsheet_id: str, sheet_id: int, keep_cols: int) -> None:
+    """Delete any grid columns past keep_cols so the sheet is exactly SHEET_COLUMNS wide."""
+    metadata = sheets.get(spreadsheetId=spreadsheet_id).execute()
+    col_count = 0
+    for sheet in metadata.get("sheets", []):
+        props = sheet.get("properties", {})
+        if int(props.get("sheetId", -1)) == sheet_id:
+            col_count = int(props.get("gridProperties", {}).get("columnCount", 0))
+            break
+    if col_count > keep_cols:
+        sheets.batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body={"requests": [{
+                "deleteDimension": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "dimension": "COLUMNS",
+                        "startIndex": keep_cols,
+                        "endIndex": col_count,
+                    }
+                }
+            }]},
+        ).execute()
 
 
 def ensure_worksheet(sheets, spreadsheet_id: str, worksheet: str) -> int:
