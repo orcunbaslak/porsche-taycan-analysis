@@ -24,6 +24,7 @@ import csv
 import json
 import os
 import re
+import socket
 import sqlite3
 import string
 import subprocess
@@ -108,7 +109,60 @@ SCORE_COLUMNS = [
     "dq_reason",
 ]
 
-SHEET_COLUMNS = MANUAL_COLUMNS + SCORE_COLUMNS + DERIVED_COLUMNS + SOURCE_COLUMNS
+# On-screen column order. VISIBLE_COLUMNS are shown in this exact order; every
+# other defined column is appended after them and hidden in the tab. The four
+# group lists above still drive the logic (manual preservation, source fill,
+# scoring) and header colours — this only fixes order + visibility, so any name
+# here must belong to one of those groups.
+VISIBLE_COLUMNS = [
+    "my_priority",
+    "rank",
+    "value_score",
+    "motivation_score",
+    "price_drop_pct",
+    "num_price_cuts",
+    "bump_count",
+    "days_on_market",
+    "dq_reason",
+    "ask_price_m_tl",
+    "price",
+    "is_clean",
+    "is_bayi",
+    "battery",
+    "model",
+    "year",
+    "km",
+    "color",
+    "km_per_year",
+    "first_seen_date",
+    "last_seen_date",
+    "runs_seen_total",
+    "price_history",
+    "is_active",
+    "detail_scraped",
+    "sahibinden_id",
+    "url",
+    "title",
+    "listing_date",
+    "location_city",
+]
+
+_ALL_DEFINED = MANUAL_COLUMNS + SCORE_COLUMNS + DERIVED_COLUMNS + SOURCE_COLUMNS
+HIDDEN_COLUMNS = [c for c in _ALL_DEFINED if c not in VISIBLE_COLUMNS]
+SHEET_COLUMNS = VISIBLE_COLUMNS + HIDDEN_COLUMNS
+
+assert set(VISIBLE_COLUMNS) <= set(_ALL_DEFINED), \
+    f"VISIBLE_COLUMNS names not defined in any group: {set(VISIBLE_COLUMNS) - set(_ALL_DEFINED)}"
+assert len(SHEET_COLUMNS) == len(set(SHEET_COLUMNS)), "duplicate column in SHEET_COLUMNS"
+
+# Header colour per column group, applied to contiguous runs so any column order
+# still bands correctly. Stored as tuples; rgb() is called at format time.
+GROUP_COLORS = {
+    "manual": (0.05, 0.32, 0.58),
+    "score": (0.13, 0.46, 0.36),
+    "derived": (0.31, 0.18, 0.56),
+    "source": (0.12, 0.16, 0.23),
+}
 
 # Score columns that should be written to the sheet as integers (the rest of
 # SCORE_COLUMNS are floats or free text).
@@ -712,6 +766,10 @@ def sync_google_sheet(
             "python -m pip install -r requirements-google.txt"
         ) from exc
 
+    # httplib2 has no default socket timeout, so a half-open connection can hang
+    # the sync forever. Cap it; the API calls here complete in well under a minute.
+    socket.setdefaulttimeout(120)
+
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     credentials = Credentials.from_service_account_file(service_account, scopes=scopes)
     service = build("sheets", "v4", credentials=credentials)
@@ -843,12 +901,7 @@ def apply_sheet_formatting(
                 "fields": "userEnteredFormat(textFormat,backgroundColor)",
             }
         },
-        header_band(sheet_id, 0, len(MANUAL_COLUMNS), rgb(0.05, 0.32, 0.58)),
-        header_band(sheet_id, len(MANUAL_COLUMNS), len(MANUAL_COLUMNS) + len(SCORE_COLUMNS), rgb(0.13, 0.46, 0.36)),
-        header_band(sheet_id, len(MANUAL_COLUMNS) + len(SCORE_COLUMNS),
-                    len(MANUAL_COLUMNS) + len(SCORE_COLUMNS) + len(DERIVED_COLUMNS), rgb(0.31, 0.18, 0.56)),
-        header_band(sheet_id, len(MANUAL_COLUMNS) + len(SCORE_COLUMNS) + len(DERIVED_COLUMNS),
-                    len(SHEET_COLUMNS), rgb(0.12, 0.16, 0.23)),
+        *header_band_requests(sheet_id),
         set_basic_filter_request(sheet_id, row_count, existing_filter),
         {
             "autoResizeDimensions": {
@@ -892,6 +945,7 @@ def apply_sheet_formatting(
         number_format(sheet_id, "num_price_cuts", "NUMBER", "0"),
         number_format(sheet_id, "bump_count", "NUMBER", "0"),
         number_format(sheet_id, "days_on_market", "NUMBER", "0"),
+        *column_visibility_requests(sheet_id),
     ]
     sheets.batchUpdate(spreadsheetId=spreadsheet_id, body={"requests": format_requests}).execute()
 
@@ -926,6 +980,51 @@ def header_band(sheet_id: int, start: int, end: int, color: dict[str, float]) ->
             "fields": "userEnteredFormat(backgroundColor,textFormat)",
         }
     }
+
+
+def _group_of(col_name: str) -> str:
+    if col_name in MANUAL_COLUMNS:
+        return "manual"
+    if col_name in SCORE_COLUMNS:
+        return "score"
+    if col_name in DERIVED_COLUMNS:
+        return "derived"
+    return "source"
+
+
+def header_band_requests(sheet_id: int) -> list[dict]:
+    """Colour each header cell by its column group, merging contiguous same-group runs."""
+    requests = []
+    start = 0
+    while start < len(SHEET_COLUMNS):
+        group = _group_of(SHEET_COLUMNS[start])
+        end = start + 1
+        while end < len(SHEET_COLUMNS) and _group_of(SHEET_COLUMNS[end]) == group:
+            end += 1
+        requests.append(header_band(sheet_id, start, end, rgb(*GROUP_COLORS[group])))
+        start = end
+    return requests
+
+
+def column_visibility_requests(sheet_id: int) -> list[dict]:
+    """Show the first len(VISIBLE_COLUMNS) columns and hide the rest, deterministically."""
+    n_visible = len(VISIBLE_COLUMNS)
+    requests = [{
+        "updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": n_visible},
+            "properties": {"hiddenByUser": False},
+            "fields": "hiddenByUser",
+        }
+    }]
+    if len(SHEET_COLUMNS) > n_visible:
+        requests.append({
+            "updateDimensionProperties": {
+                "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": n_visible, "endIndex": len(SHEET_COLUMNS)},
+                "properties": {"hiddenByUser": True},
+                "fields": "hiddenByUser",
+            }
+        })
+    return requests
 
 
 def set_basic_filter_request(sheet_id: int, row_count: int, existing_filter: dict | None) -> dict:
