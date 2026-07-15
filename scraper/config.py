@@ -8,7 +8,12 @@ CHROME_PROFILE = "Profile 1"  # SahibindenProfile
 
 # Sahibinden URLs
 BASE_URL = "https://www.sahibinden.com"
-SEARCH_URL = f"{BASE_URL}/porsche-taycan-elektrik?pagingSize=50&sorting=date_desc"
+# a116445=1263354 → "Ağır Hasar Kayıtlı: Hayır" facet (1263353 is Evet); excludes
+# heavy-damage-record cars at the source so they never consume detail-fetch budget.
+SEARCH_URL = (
+    f"{BASE_URL}/porsche-taycan-elektrik"
+    f"?pagingSize=50&sorting=date_desc&a116445=1263354"
+)
 
 # Delay between page loads (seconds) — randomized ±30%
 DEFAULT_DELAY = 4.0

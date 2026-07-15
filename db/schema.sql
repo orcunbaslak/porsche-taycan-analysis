@@ -87,3 +87,14 @@ CREATE TABLE IF NOT EXISTS listing_signals (
     insufficient_history INTEGER DEFAULT 0,
     computed_at          TEXT
 );
+
+-- Latest row per car, active only, heavy-damage-record cars excluded.
+-- hdr_verified=0 means the car has never been detail-scraped, so its
+-- heavy-damage status is UNKNOWN (list pages don't carry it) — treat as unverified.
+CREATE VIEW IF NOT EXISTS v_buyable AS
+SELECT l.*,
+       CASE WHEN l.heavy_damage_record IN ('Evet', 'Hayır') THEN 1 ELSE 0 END AS hdr_verified
+FROM listings l
+WHERE l.id IN (SELECT MAX(id) FROM listings GROUP BY sahibinden_id)
+  AND l.is_active = 1
+  AND COALESCE(l.heavy_damage_record, '') != 'Evet';

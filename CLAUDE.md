@@ -30,6 +30,13 @@ pytest -q                              # Run the test suite
 ## Notes
 - Uses rebrowser-playwright with Chrome user profile for anti-detection
 - Database: taycan.db (SQLite, tracked in git)
+- **Heavy-damage cars are excluded at the source (2026-07-15):** `SEARCH_URL` carries
+  `a116445=1263354` ("Ağır Hasar Kayıtlı: Hayır"; `1263353`=Evet — param verified in
+  sample-list-of-cars.html), so ağır-hasarlı cars never enter scans or eat detail budget.
+  For historical rows, use the `v_buyable` view (schema.sql): latest active row per car,
+  `heavy_damage_record='Evet'` excluded, `hdr_verified=0` marks never-detailed cars whose
+  status is unknown. Note: the first scan after this change retires existing heavy-damage
+  cars via `mark_inactive_listings` — those are filter removals, not sales.
 - macOS: use `gtimeout` instead of `timeout`
 - Sahibinden's listing date is a *bump* date, not a creation date (~66% of cars get re-bumped). The scan no longer early-stops on date; it always does a full list sweep and only detail-scrapes truly-new cars. `scraper/signals.py` rebuilds the `listing_signals` table (bump count, price drops, days-on-market, 0-100 motivation score) each run; the notebook's Section 15 shows the ranked report, signal charts, and per-car price history.
 - **Rate-limit pacing (retuned 2026-06-25 after a recurring block):** the block is reputation/volume-driven, not just speed-driven — on a degraded profile it tripped at ~9 total requests (was ~18), and a 4-day cooldown wasn't enough. Defaults are now gentler: `HUMAN_DELAY` 12–30s, long break every 4 requests (45–120s), `DEFAULT_MAX_DETAILS=3`. **For routine refreshes prefer `--list-only`** (~6 requests, no detail fetches) — the bargain signal is fully list-based. The real cure for a burned profile/IP is a fresh Chrome profile and/or residential proxy (still not done). `--bot-check` verifies stealth safely (hits browserscan, not sahibinden).
