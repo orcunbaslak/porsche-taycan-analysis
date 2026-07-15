@@ -37,6 +37,7 @@ import pandas as pd
 
 from scraper.parsers import parse_listing_date
 from scraper.signals import compute_car_metrics
+from valuation import VALUATION_EXPORT_COLUMNS, valuation_by_id
 
 
 DB_PATH = "taycan.db"
@@ -64,7 +65,6 @@ MANUAL_COLUMNS = [
 ]
 
 DERIVED_COLUMNS = [
-    "ask_price_m_tl",
     "is_clean",
     "is_bayi",
     "battery",
@@ -77,7 +77,6 @@ DERIVED_COLUMNS = [
 
 SOURCE_COLUMNS = [
     "is_active",
-    "detail_scraped",
     "sahibinden_id",
     "url",
     "title",
@@ -110,6 +109,11 @@ SCORE_COLUMNS = [
     "dq_reason",
 ]
 
+# Hedonic fair-value model outputs (valuation.py, kept in sync with
+# analysis.ipynb Section 16). Blank for cars outside the buyable universe
+# (inactive / heavy-damage-record).
+VALUATION_COLUMNS = list(VALUATION_EXPORT_COLUMNS)
+
 # On-screen column order. VISIBLE_COLUMNS are shown in this exact order; every
 # other defined column is appended after them and hidden in the tab. The four
 # group lists above still drive the logic (manual preservation, source fill,
@@ -125,8 +129,13 @@ VISIBLE_COLUMNS = [
     "bump_count",
     "days_on_market",
     "dq_reason",
-    "ask_price_m_tl",
     "price",
+    "fair_ask_tl",
+    "bargain_pct",
+    "offer_open_tl",
+    "offer_settle_tl",
+    "tramer_tl",
+    "verify_first",
     "is_clean",
     "is_bayi",
     "battery",
@@ -141,7 +150,6 @@ VISIBLE_COLUMNS = [
     "runs_seen_total",
     "price_history",
     "is_active",
-    "detail_scraped",
     "sahibinden_id",
     "url",
     "title",
@@ -149,7 +157,7 @@ VISIBLE_COLUMNS = [
     "location_city",
 ]
 
-_ALL_DEFINED = MANUAL_COLUMNS + SCORE_COLUMNS + DERIVED_COLUMNS + SOURCE_COLUMNS
+_ALL_DEFINED = MANUAL_COLUMNS + SCORE_COLUMNS + VALUATION_COLUMNS + DERIVED_COLUMNS + SOURCE_COLUMNS
 HIDDEN_COLUMNS = [c for c in _ALL_DEFINED if c not in VISIBLE_COLUMNS]
 SHEET_COLUMNS = VISIBLE_COLUMNS + HIDDEN_COLUMNS
 
@@ -162,6 +170,7 @@ assert len(SHEET_COLUMNS) == len(set(SHEET_COLUMNS)), "duplicate column in SHEET
 GROUP_COLORS = {
     "manual": (0.05, 0.32, 0.58),
     "score": (0.13, 0.46, 0.36),
+    "valuation": (0.72, 0.38, 0.08),
     "derived": (0.31, 0.18, 0.56),
     "source": (0.12, 0.16, 0.23),
 }
@@ -411,7 +420,9 @@ def read_csv_rows(path: str | os.PathLike[str]) -> tuple[list[str], list[dict[st
 
 def write_csv_rows(path: str | os.PathLike[str], header: list[str], rows: Iterable[dict[str, str]]) -> None:
     with Path(path).open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=header)
+        # extrasaction="ignore": rows may carry internal working keys (e.g. the
+        # detail_scraped flag used by clean_status) that are not sheet columns.
+        writer = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -426,6 +437,11 @@ def connect_readonly(db_path: str) -> sqlite3.Connection:
 
 def load_all_cars(db_path: str) -> list[dict[str, str]]:
     scores = scores_by_id(db_path)
+    try:
+        valuations = valuation_by_id(db_path)
+    except Exception as exc:  # model failure must not block the sheet sync
+        print(f"WARNING: valuation model failed ({exc}); valuation columns left blank.")
+        valuations = {}
     conn = connect_readonly(db_path)
     try:
         latest_rows = conn.execute(
@@ -504,12 +520,21 @@ def load_all_cars(db_path: str) -> list[dict[str, str]]:
         row["last_seen_date"] = _clean(seen["last_seen_date"] if seen else "")
         row["runs_seen_total"] = _clean(seen["runs_seen_total"] if seen else "")
         row["price_history"] = history_by_id.get(sid, "")
-        row["ask_price_m_tl"] = format_m_tl(row.get("price"))
         car_scores = scores.get(str(sid), {})
         for score_col in SCORE_COLUMNS:
             row[score_col] = car_scores.get(score_col, "")
+        car_vals = valuations.get(str(sid), {})
+        for val_col in VALUATION_COLUMNS:
+            row[val_col] = car_vals.get(val_col, "")
         rows.append(row)
 
+    # Sheet carries only the shoppable universe: active cars, sedan bodies.
+    rows = [
+        r for r in rows
+        if r.get("is_active") == "Yes"
+        and r.get("body_type") not in ("Station Wagon", "Hatchback 5 kapı")
+        and "Cross Turismo" not in (r.get("model") or "")
+    ]
     rows.sort(key=sort_key)
     return rows
 
@@ -609,13 +634,6 @@ def to_float(value: str | None) -> float | None:
         return float(str(value).strip().replace(",", ""))
     except ValueError:
         return None
-
-
-def format_m_tl(value: str | None) -> str:
-    amount = to_int(value)
-    if amount is None:
-        return ""
-    return f"{amount / 1_000_000:.3f}"
 
 
 def format_discount(phone_price: str | None, ask_price: str | None) -> str:
@@ -723,13 +741,21 @@ INTEGER_COLUMNS = {
     "num_price_cuts",
     "bump_count",
     "days_on_market",
+    "fair_ask_tl",
+    "offer_open_tl",
+    "offer_settle_tl",
+    "drop_paint_tl",
+    "drop_changed_tl",
+    "drop_10k_km_tl",
+    "drop_1yr_tl",
+    "tramer_tl",
 }
 
 FLOAT_COLUMNS = {
-    "ask_price_m_tl",
     "value_score",
     "motivation_score",
     "price_drop_pct",
+    "bargain_pct",
 }
 
 
@@ -937,9 +963,17 @@ def apply_sheet_formatting(
         conditional_formula(sheet_id, row_count, f"${col('is_active')}2=\"No\"", rgb(0.93, 0.93, 0.93), rgb(0.45, 0.45, 0.45)),
         conditional_formula(sheet_id, row_count, f"N(${col('damage_changed_count')}2)>0", rgb(1.00, 0.88, 0.70)),
         conditional_formula(sheet_id, row_count, f"${col('is_clean')}2=\"Yes\"", rgb(0.83, 0.93, 0.84)),
-        number_format(sheet_id, "price", "NUMBER", "#,##0"),
+        number_format(sheet_id, "price", "NUMBER", '#,##0" TL"'),
         number_format(sheet_id, "km", "NUMBER", "#,##0"),
-        number_format(sheet_id, "ask_price_m_tl", "NUMBER", "0.000"),
+        number_format(sheet_id, "fair_ask_tl", "NUMBER", '#,##0" TL"'),
+        number_format(sheet_id, "bargain_pct", "NUMBER", '0.0"%"'),
+        number_format(sheet_id, "offer_open_tl", "NUMBER", '#,##0" TL"'),
+        number_format(sheet_id, "offer_settle_tl", "NUMBER", '#,##0" TL"'),
+        number_format(sheet_id, "drop_paint_tl", "NUMBER", '#,##0" TL"'),
+        number_format(sheet_id, "drop_changed_tl", "NUMBER", '#,##0" TL"'),
+        number_format(sheet_id, "drop_10k_km_tl", "NUMBER", '#,##0" TL"'),
+        number_format(sheet_id, "drop_1yr_tl", "NUMBER", '#,##0" TL"'),
+        number_format(sheet_id, "tramer_tl", "NUMBER", '#,##0" TL"'),
         number_format(sheet_id, "rank", "NUMBER", "0"),
         number_format(sheet_id, "value_score", "NUMBER", "0.0"),
         number_format(sheet_id, "motivation_score", "NUMBER", "0.0"),
@@ -989,6 +1023,8 @@ def _group_of(col_name: str) -> str:
         return "manual"
     if col_name in SCORE_COLUMNS:
         return "score"
+    if col_name in VALUATION_COLUMNS:
+        return "valuation"
     if col_name in DERIVED_COLUMNS:
         return "derived"
     return "source"
